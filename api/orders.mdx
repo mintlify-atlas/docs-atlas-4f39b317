@@ -4,13 +4,13 @@ sidebarTitle: "Orders"
 description: "REST endpoints for creating orders, assigning delivery drivers, updating order status, and cancelling orders. Stock is deducted transactionally on creation."
 ---
 
-The Orders API is the operational core of Yakult App. Creating an order automatically deducts the sold quantities from each product's stock and, when a delivery driver (`repartidor`) is assigned at creation time, fires an in-app notification to alert them. Status transitions follow the lifecycle `Pendiente → En camino → Entregado`; any status change triggered by someone other than the assigned driver also sends a notification so drivers stay informed in real time.
+The Orders API is the operational core of Yakult App. Creating an order automatically deducts the sold quantities from each product's stock in a single database transaction and, when a delivery driver (`repartidor`) is assigned at creation time, fires an in-app notification to alert them. Status transitions follow the lifecycle `Pendiente → En camino → Entregado`; any status change triggered by someone other than the assigned driver also sends a notification so drivers stay informed in real time. No global authentication middleware is applied — callers identify themselves via the `x-user-id` header where needed.
 
 ---
 
 ### GET /api/ordenes
 
-Returns all orders with their line items, client details, and assigned personnel.
+Returns all orders with their line items, client details, and assigned personnel, ordered from most recent to oldest.
 
 **Example request**
 
@@ -31,7 +31,7 @@ curl http://localhost:3000/api/ordenes
     "repartidorNombre": "Luis Méndez",
     "total": 750.00,
     "estado": "Pendiente",
-    "fecha": "2025-01-15T10:23:00.000Z",
+    "fecha": "15 Jan",
     "items": [
       {
         "nombre": "Yakult Original 65ml",
@@ -46,12 +46,12 @@ curl http://localhost:3000/api/ordenes
 <ResponseField name="id" type="number">Unique numeric order ID.</ResponseField>
 <ResponseField name="clienteNombre" type="string">Name of the client who placed the order.</ResponseField>
 <ResponseField name="clienteTelefono" type="string">Phone number of the client.</ResponseField>
-<ResponseField name="vendedorNombre" type="string">Name of the sales promotor who created the order.</ResponseField>
+<ResponseField name="vendedorNombre" type="string">Name of the sales promotor who created the order, or `null` if unassigned.</ResponseField>
 <ResponseField name="repartidorId" type="number">Numeric ID of the assigned delivery driver, or `null` if unassigned.</ResponseField>
 <ResponseField name="repartidorNombre" type="string">Name of the assigned delivery driver, or `null` if unassigned.</ResponseField>
 <ResponseField name="total" type="number">Sum of all line item subtotals.</ResponseField>
 <ResponseField name="estado" type="string">Current status: `Pendiente`, `En camino`, or `Entregado`.</ResponseField>
-<ResponseField name="fecha" type="string">ISO 8601 timestamp of when the order was placed.</ResponseField>
+<ResponseField name="fecha" type="string">Formatted order date, e.g. `"15 Jan"`.</ResponseField>
 <ResponseField name="items" type="array">
   Line items included in the order.
 
@@ -66,10 +66,10 @@ curl http://localhost:3000/api/ordenes
 
 ### POST /api/ordenes
 
-Creates a new order, deducts stock for every line item, and optionally notifies the assigned delivery driver.
+Creates a new order, deducts stock for every line item in a single transaction, and optionally notifies the assigned delivery driver. No authentication is required; include `x-user-id` in the header if needed for downstream notification logic.
 
 <Note>
-  Stock deduction is performed as part of order creation. If any product has insufficient stock, the request may still succeed — validate stock levels via `GET /api/productos` before submitting.
+  Stock deduction is performed as part of order creation in a transaction. If any step fails, the entire operation rolls back. The API does not validate that stock is sufficient before deducting — check `GET /api/productos` beforehand if needed.
 </Note>
 
 <ParamField body="clienteId" type="number" required>
@@ -95,7 +95,7 @@ Creates a new order, deducts stock for every line item, and optionally notifies 
 </ParamField>
 
 <ParamField body="total" type="number" required>
-  Pre-calculated grand total for the order. Should equal the sum of `(cantidad × precio)` across all items.
+  Pre-calculated grand total for the order.
 </ParamField>
 
 **Example request**
@@ -126,9 +126,7 @@ curl -X POST http://localhost:3000/api/ordenes \
 
 | Status | Reason |
 |--------|--------|
-| `400` | `clienteId`, `items`, or `total` is missing. |
-| `400` | `items` array is empty. |
-| `404` | One or more referenced IDs (`clienteId`, `vendedorId`, `repartidorId`, or a `productoId`) do not exist. |
+| `500` | A database error occurred; the transaction was rolled back. |
 
 ---
 
@@ -141,10 +139,10 @@ Updates the status of an existing order. If the change is triggered by someone o
 </ParamField>
 
 <ParamField body="estado" type="string" required>
-  New status for the order. Must be one of `Pendiente`, `En camino`, or `Entregado`.
+  New status for the order. Typical values: `Pendiente`, `En camino`, or `Entregado`.
 </ParamField>
 
-Pass the caller's user ID in the `x-user-id` header so the API can determine whether to notify the repartidor.
+Pass the caller's user ID in the `x-user-id` header so the API can determine whether to notify the repartidor (the notification is skipped when the actor is the same user as the assigned driver).
 
 **Example request**
 
@@ -161,18 +159,11 @@ curl -X PUT http://localhost:3000/api/ordenes/1/estado \
 { "ok": true }
 ```
 
-**Errors**
-
-| Status | Reason |
-|--------|--------|
-| `400` | `estado` is missing or not one of the three valid values. |
-| `404` | No order found with the given ID. |
-
 ---
 
 ### PUT /api/ordenes/:id/repartidor
 
-Assigns or unassigns a delivery driver for an existing order. When a new driver is assigned, they receive an in-app notification.
+Assigns or unassigns a delivery driver for an existing order. When a driver is assigned, they receive an in-app notification.
 
 <ParamField path="id" type="number" required>
   Numeric ID of the order to update.
@@ -196,18 +187,11 @@ curl -X PUT http://localhost:3000/api/ordenes/1/repartidor \
 { "ok": true }
 ```
 
-**Errors**
-
-| Status | Reason |
-|--------|--------|
-| `400` | `repartidorId` key is not present in the body. |
-| `404` | No order found with the given ID, or the specified driver ID does not exist. |
-
 ---
 
 ### DELETE /api/ordenes/:id
 
-Permanently deletes an order and all of its line items in a single transaction.
+Permanently deletes an order and all of its line items in a single transaction. If any step fails, the entire operation is rolled back.
 
 <Note>
   Deleting an order does **not** restore the stock that was deducted when the order was created. Adjust inventory manually via `PUT /api/productos/:id` if needed.
@@ -233,4 +217,4 @@ curl -X DELETE http://localhost:3000/api/ordenes/1
 
 | Status | Reason |
 |--------|--------|
-| `404` | No order found with the given ID. |
+| `500` | A database error occurred; the transaction was rolled back. |

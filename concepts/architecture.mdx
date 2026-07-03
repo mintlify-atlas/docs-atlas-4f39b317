@@ -1,7 +1,7 @@
 ---
-title: "Yakult App Architecture and System Design"
+title: "Yakult App — Architecture and System Design Overview"
 sidebarTitle: "Architecture"
-description: "How the React Native mobile client, Express REST API, and MySQL database connect and communicate in the Yakult App system."
+description: "How the React Native mobile client, Express 5 REST API, and MySQL database connect and communicate in the Yakult App sales management system."
 ---
 
 Yakult App is a full-stack sales management platform built for Yakult distributors. It consists of three tightly connected layers: a React Native (Expo) mobile front-end that sales representatives carry in the field, an Express 5 REST API that enforces business logic and authentication, and a MySQL database that persists every product, client, order, and report. Each layer has a single, clearly defined responsibility, and they communicate exclusively through a JSON HTTP interface — meaning the mobile app never touches the database directly and the server never pushes data without a client request (except through the notification polling model).
@@ -32,11 +32,12 @@ Every action in the mobile app follows this path:
     A screen inside `app/(tabs)/` calls a method on one of the service objects exported from `services/db.ts` (e.g., `OrdenesDB.agregar(order)`).
   </Step>
   <Step title="HTTP request with auth headers">
-    `services/db.ts` builds the request headers and calls the API base URL. Two auth headers are attached on every protected call:
+    `services/db.ts` builds the request headers and calls the API base URL. The following headers are attached on every call:
 
     ```ts
     const headers = (): Record<string, string> => ({
       'Content-Type': 'application/json',
+      'x-github-token': 'anonymous',
       ...(usuarioActual?.id ? { 'x-user-id': String(usuarioActual.id) } : {}),
       ...(tokenActual ? { Authorization: `Bearer ${tokenActual}` } : {}),
     });
@@ -44,9 +45,10 @@ Every action in the mobile app follows this path:
 
     | Header | Purpose |
     |---|---|
+    | `Content-Type` | Always `application/json` — tells the server to parse the request body as JSON |
+    | `x-github-token` | Always sent as `'anonymous'`; required by the CORS `allowedHeaders` policy |
     | `Authorization: Bearer <token>` | JWT identity proof, verified server-side via `verificarToken()` |
     | `x-user-id` | Numeric user ID used to scope notification queries without decoding the JWT on every read |
-    | `Content-Disposition` | Exposed by the server for file-download responses (e.g., report exports) |
   </Step>
   <Step title="API route handler">
     The Express router for the matched route (e.g., `POST /api/ordenes`) validates the token, applies business-logic checks, and runs the appropriate SQL query via the `db` pool.

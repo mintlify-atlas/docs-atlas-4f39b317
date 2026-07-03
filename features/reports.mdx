@@ -1,7 +1,7 @@
 ---
-title: "Generate and Export Yakult Sales Reports"
+title: "Generate and Export Yakult Sales Reports | Yakult App"
 sidebarTitle: "Reports"
-description: "Generate filterable sales reports with date ranges, product/client/vendor filters, and grouping by day, week, month, or year. Export as PDF or printable HTML."
+description: "Generate filterable sales reports with date ranges, product, client, and vendor filters, and grouping by day, week, month, or year. Export as PDF or HTML."
 ---
 
 The Reports module gives Yakult distributors a complete picture of sales performance across any time window. Masters can generate reports across all vendors, clients, and products, while Promotors and Repartidores can generate and revisit their own reports. Every report is saved automatically to the history the moment it is generated, so your team always has a full audit trail of past analyses. Supported outputs include an interactive data response, a branded PDF with charts, and a print-ready HTML page.
@@ -108,9 +108,10 @@ POST /api/reportes/ventas
 
 <Warning>
   The API returns `400 Bad Request` if any of the following conditions are violated:
-  - `fechaInicio` or `fechaFin` is missing or not in `YYYY-MM-DD` format.
+  - `fechaInicio` or `fechaFin` is not in `YYYY-MM-DD` format.
   - `fechaInicio` is after `fechaFin`.
-  - `agrupacion` is not one of `dia`, `semana`, `mes`, or `anio`.
+
+  An unrecognized `agrupacion` value does **not** produce an error — it silently falls back to `dia`.
 </Warning>
 
 ### Example `curl` Request
@@ -283,7 +284,7 @@ The response uses `Content-Type: application/pdf` and includes a `Content-Dispos
 
 <CardGroup cols={2}>
   <Card title="Header" icon="file-pdf">
-    Report name, date range, applied filters, and the name and role of the user who generated it.
+    YAKULT logo text, the report title "Reporte de Ventas", and the date range (`fechaInicio` to `fechaFin`).
   </Card>
   <Card title="Performance Metrics Card" icon="chart-line">
     The three `resumen` KPIs displayed prominently — total sales, units sold, and total revenue.

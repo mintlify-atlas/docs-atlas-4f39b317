@@ -1,7 +1,7 @@
 ---
-title: "Authenticate with Yakult App"
+title: "Yakult App Authentication: JWT Login and Registration"
 sidebarTitle: "Authentication"
-description: "Yakult App uses JWT bearer tokens for authentication. Register or log in to receive a 30-day token, then include it in the Authorization header on protected requests."
+description: "Yakult App uses JWT bearer tokens for all API authentication. Register or log in to receive a signed 30-day token and attach it to protected requests."
 ---
 
 Yakult App secures every API request with JSON Web Tokens (JWT). When a user registers or logs in, the server returns a signed token that encodes the user's `id` and `rol`. This token must be attached to every subsequent request that requires authentication. Tokens are valid for **30 days**, after which the user must log in again to obtain a fresh one.
@@ -79,9 +79,9 @@ Existing users authenticate with `POST /api/auth/login`. The server looks up the
 
 | Scenario | Status | Message |
 |---|---|---|
-| Missing `correo` or `contrasena` | `400` | `"Correo y contraseña son requeridos."` |
-| Email not found or wrong password | `401` | `"Credenciales inválidas."` |
-| Account is deactivated | `403` | `"Cuenta desactivada."` |
+| Missing `correo` or `contrasena` | `400` | `"Correo y contraseña son obligatorios."` |
+| Email not found or wrong password | `401` | `"Correo o contraseña incorrectos."` |
+| Account is deactivated | `403` | `"Tu cuenta está desactivada. Contacta al administrador."` |
 
 ### Example — log in
 
@@ -145,14 +145,12 @@ If the token is missing or has expired, the server responds with `401`:
 
 ## JWT payload
 
-The token is signed with the HS256 algorithm. Decoding it reveals the following claims:
+The token is signed with the HS256 algorithm. Only `id` and `rol` are embedded in the payload — no name or email is stored in the token itself.
 
 ```json
 {
   "id": 42,
-  "rol": "Master",
-  "iat": 1719000000,
-  "exp": 1721592000
+  "rol": "Master"
 }
 ```
 
@@ -160,8 +158,6 @@ The token is signed with the HS256 algorithm. Decoding it reveals the following 
 |---|---|
 | `id` | Unique integer identifier of the user in the database. |
 | `rol` | Role of the user: `Master`, `Promotor`, or `Repartidor`. |
-| `iat` | Unix timestamp when the token was issued. |
-| `exp` | Unix timestamp when the token expires (issued + 30 days). |
 
 <Warning>
   The default signing secret is `yakult-reportes-dev-secret`, which is embedded in the source code and **must not be used in production**. Override it by setting the `JWT_SECRET` environment variable on your server before starting the application. Any tokens signed with the development secret will become invalid once the variable is changed.
@@ -179,16 +175,15 @@ The React Native app wraps all authentication logic in `AuthContext`, which expo
 | `cargando` | `boolean` | `true` while an auth request is in flight. |
 | `login(correo, contrasena)` | `Promise` | Calls `POST /api/auth/login` and stores the returned token in `AsyncStorage`. |
 | `registro(nombre, correo, contrasena)` | `Promise` | Calls `POST /api/auth/registro` and stores the token. |
-| `logout()` | `void` | Clears the token from `AsyncStorage` and sets `usuario` to `null`. |
+| `logout()` | `Promise<void>` | Clears the token from `AsyncStorage` and sets `usuario` to `null`. |
 
 ### Example — consuming the context in a screen
 
 ```ts
-import { useContext } from 'react';
-import { AuthContext } from '@/context/AuthContext';
+import { useAuth } from '@/context/AuthContext';
 
 export default function LoginScreen() {
-  const { login, cargando } = useContext(AuthContext);
+  const { login, cargando } = useAuth();
 
   const handleLogin = async () => {
     await login('ana@upa.edu.mx', 'Segura#2024');
@@ -206,13 +201,13 @@ export default function LoginScreen() {
 
     ```json
     {
-      "error": "Todos los campos son requeridos."
+      "error": "Todos los campos son obligatorios."
     }
     ```
 
     ```json
     {
-      "error": "El correo ya está registrado."
+      "error": "Este correo ya está registrado."
     }
     ```
   </Tab>
@@ -221,7 +216,7 @@ export default function LoginScreen() {
 
     ```json
     {
-      "error": "Credenciales inválidas."
+      "error": "Correo o contraseña incorrectos."
     }
     ```
 
@@ -236,7 +231,7 @@ export default function LoginScreen() {
 
     ```json
     {
-      "error": "Cuenta desactivada."
+      "error": "Tu cuenta está desactivada. Contacta al administrador."
     }
     ```
   </Tab>

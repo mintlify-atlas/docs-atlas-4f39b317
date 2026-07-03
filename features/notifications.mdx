@@ -1,7 +1,7 @@
 ---
-title: "In-App Notifications for Delivery Drivers"
+title: "Yakult App In-App Notifications for Delivery Drivers"
 sidebarTitle: "Notifications"
-description: "Yakult App sends automatic in-app notifications to delivery drivers when orders are assigned or change status. Drivers manage their inbox from the Avisos tab."
+description: "Yakult App delivers real-time notifications to drivers when orders are assigned or their status changes. Drivers manage their inbox from the Avisos tab."
 ---
 
 The Yakult App notification system keeps delivery drivers informed in real time without requiring any manual configuration. Whenever an order is assigned to a driver or its status changes, the platform automatically creates and delivers a targeted notification visible only to that driver. Drivers access their full notification inbox through the **Avisos** tab in the mobile app, where they can review unread messages, mark items as read individually or all at once, and quickly navigate to the related order.
@@ -94,8 +94,8 @@ curl https://your-api.com/api/notificaciones \
     "id": 2,
     "ordenId": 5,
     "tipo": "estado",
-    "titulo": "Estado de orden actualizado",
-    "mensaje": "La orden #5 cambió a estado 'En camino'.",
+    "titulo": "Orden #5 actualizada",
+    "mensaje": "La orden de Tienda López cambió a \"En camino\".",
     "leida": true,
     "fecha": "15 Jan 11:05"
   }
@@ -126,7 +126,7 @@ curl -X PUT https://your-api.com/api/notificaciones/1/leida \
 **Response**
 
 ```json
-{ "mensaje": "Notificación marcada como leída." }
+{ "ok": true }
 ```
 
 ---
@@ -149,7 +149,7 @@ curl -X PUT https://your-api.com/api/notificaciones/leer-todas \
 **Response**
 
 ```json
-{ "mensaje": "Todas las notificaciones marcadas como leídas." }
+{ "ok": true }
 ```
 
 ---

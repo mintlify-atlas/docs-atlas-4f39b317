@@ -1,7 +1,7 @@
 ---
-title: "Get Started with Yakult App"
+title: "Quickstart: Run Yakult App in Your Local Environment"
 sidebarTitle: "Quickstart"
-description: "Clone the repo, start the MySQL database, run the Express backend, and launch the Expo mobile app — all in under 10 minutes."
+description: "Clone the repo, start MySQL, run the Express backend on port 3000, and launch the Expo mobile app — have a working dev environment in under 10 minutes."
 ---
 
 This guide walks you through getting a fully working Yakult App development environment running on your local machine. By the end, you will have the MySQL database initialized, the Express backend serving the REST API on port 3000, and the Expo mobile app running on an emulator or physical device — ready to register your first user and place your first order.
@@ -133,8 +133,8 @@ This guide walks you through getting a fully working Yakult App development envi
       -H "Content-Type: application/json" \
       -d '{
         "nombre": "Ana López",
-        "email": "ana@upa.edu.mx",
-        "password": "MiContraseña123"
+        "correo": "ana@upa.edu.mx",
+        "contrasena": "MiContraseña123"
       }'
     ```
 
@@ -149,14 +149,13 @@ This guide walks you through getting a fully working Yakult App development envi
 
     ```json
     {
-      "ok": true,
-      "token": "<jwt-token>",
       "usuario": {
         "id": 1,
         "nombre": "Ana López",
-        "email": "ana@upa.edu.mx",
+        "correo": "ana@upa.edu.mx",
         "rol": "Master"
-      }
+      },
+      "token": "<jwt-token>"
     }
     ```
   </Step>

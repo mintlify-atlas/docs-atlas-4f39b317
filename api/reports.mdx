@@ -4,13 +4,13 @@ sidebarTitle: "Reports"
 description: "JWT-protected REST endpoints to generate, retrieve, and export sales reports as PDF or printable HTML. Supports filtering by date, client, product, and vendor."
 ---
 
-The Reports API lets authorized users generate on-demand sales reports with rich filtering options — by date range, client, product, category, or vendor. Reports are persisted in the database so they can be retrieved, shared, and re-exported at any time. **Master** users can see every report ever generated; other roles see only their own. All endpoints on this API require a valid JWT in the `Authorization` header.
+The Reports API lets authorized users generate on-demand sales reports with rich filtering options — by date range, client, product, category, or vendor. Reports are persisted in the database so they can be retrieved, shared, and re-exported at any time. **Master** users can see every report ever generated; other roles see only their own. All endpoints on this API require a valid JWT in the `Authorization` header, and the account must be active (`activo = 1`).
 
 ---
 
 ### GET /api/reportes/opciones
 
-Returns the reference data needed to populate report filter dropdowns — the full list of clients, products, categories, and vendors.
+Returns the reference data needed to populate report filter dropdowns — the full list of active clients, products, distinct categories, and active users.
 
 <Note>
   **Requires:** `Authorization: Bearer <token>`
@@ -31,40 +31,47 @@ curl http://localhost:3000/api/reportes/opciones \
     { "id": 1, "nombre": "Tienda López" }
   ],
   "productos": [
-    { "id": 1, "nombre": "Yakult Original 65ml" }
+    { "id": 1, "nombre": "Yakult Original 65ml", "categoria": "Bebida probiótica" }
   ],
-  "categorias": ["Bebida probiótica"],
+  "categorias": ["Bebida probiótica", "General"],
   "vendedores": [
-    { "id": 2, "nombre": "Ana García" }
+    { "id": 2, "nombre": "Ana García", "rol": "Master" }
   ]
 }
 ```
 
 <ResponseField name="clientes" type="array">List of active clients (`id`, `nombre`) for use in the `clienteId` filter.</ResponseField>
-<ResponseField name="productos" type="array">List of products (`id`, `nombre`) for use in the `productoId` filter.</ResponseField>
-<ResponseField name="categorias" type="array">Distinct category strings present in the catalog.</ResponseField>
-<ResponseField name="vendedores" type="array">List of users with the Promotor or Master role (`id`, `nombre`) for use in the `vendedorId` filter.</ResponseField>
+<ResponseField name="productos" type="array">List of products (`id`, `nombre`, `categoria`) for use in the `productoId` filter.</ResponseField>
+<ResponseField name="categorias" type="array">Distinct category strings present in the catalog. Blank categories appear as `"General"`.</ResponseField>
+<ResponseField name="vendedores" type="array">List of active users (`id`, `nombre`, `rol`) for use in the `vendedorId` filter.</ResponseField>
+
+**Errors**
+
+| Status | Reason |
+|--------|--------|
+| `401` | Missing or invalid Bearer token. |
+| `403` | Account is inactive. |
 
 ---
 
 ### POST /api/reportes/ventas
 
-Generates a new sales report, persists it, and returns the full report object. Dates must be in `YYYY-MM-DD` format, and `fechaInicio` cannot be later than `fechaFin`.
+Generates a new sales report, persists it, and returns the full report object. If `fechaInicio` or `fechaFin` are not provided, they default to the first day of the current month and today respectively.
 
 <Note>
   **Requires:** `Authorization: Bearer <token>`
 </Note>
 
-<ParamField body="fechaInicio" type="string" required>
-  Start of the reporting period in `YYYY-MM-DD` format.
+<ParamField body="fechaInicio" type="string">
+  Start of the reporting period in `YYYY-MM-DD` format. Defaults to the first day of the current month.
 </ParamField>
 
-<ParamField body="fechaFin" type="string" required>
-  End of the reporting period in `YYYY-MM-DD` format. Must be on or after `fechaInicio`.
+<ParamField body="fechaFin" type="string">
+  End of the reporting period in `YYYY-MM-DD` format. Must be on or after `fechaInicio`. Defaults to today.
 </ParamField>
 
 <ParamField body="nombre" type="string">
-  Optional display name for this report, e.g. `"Reporte Enero 2025"`. If omitted, a name is generated automatically.
+  Optional display name for this report, e.g. `"Reporte Enero 2025"`. If omitted, a name is generated automatically from the date range.
 </ParamField>
 
 <ParamField body="clienteId" type="number">
@@ -193,33 +200,33 @@ curl -X POST http://localhost:3000/api/reportes/ventas \
   High-level aggregates for the period.
 
   <Expandable title="resumen fields">
-    <ResponseField name="totalVentas" type="number">Number of orders in the period.</ResponseField>
+    <ResponseField name="totalVentas" type="number">Number of distinct orders in the period.</ResponseField>
     <ResponseField name="unidadesVendidas" type="number">Total product units sold.</ResponseField>
     <ResponseField name="ingresosTotales" type="number">Total revenue across all orders.</ResponseField>
   </Expandable>
 </ResponseField>
 
 <ResponseField name="ventas" type="array">
-  One row per order line, suitable for a tabular breakdown.
+  One row per order in the period.
 
   <Expandable title="ventas fields">
     <ResponseField name="numeroVenta" type="number">Order ID.</ResponseField>
-    <ResponseField name="fecha" type="string">Order date and time.</ResponseField>
+    <ResponseField name="fecha" type="string">Order date and time formatted as `YYYY-MM-DD HH:mm`.</ResponseField>
     <ResponseField name="cliente" type="string">Client name.</ResponseField>
-    <ResponseField name="vendedor" type="string">Vendor name.</ResponseField>
-    <ResponseField name="productosVendidos" type="string">Human-readable summary of the products in the order.</ResponseField>
-    <ResponseField name="cantidad" type="number">Total units in the order.</ResponseField>
+    <ResponseField name="vendedor" type="string">Vendor name, or `"Sin vendedor"` if unassigned.</ResponseField>
+    <ResponseField name="productosVendidos" type="string">Comma-separated summary of products and quantities, e.g. `"Yakult Original 65ml x20"`.</ResponseField>
+    <ResponseField name="cantidad" type="number">Total units across all line items in the order.</ResponseField>
     <ResponseField name="total" type="number">Order total.</ResponseField>
   </Expandable>
 </ResponseField>
 
 <ResponseField name="productosMasVendidos" type="array">
-  Products ranked by units sold, descending.
+  Up to 10 products ranked by units sold, descending.
 
   <Expandable title="productosMasVendidos fields">
     <ResponseField name="id" type="number">Product ID.</ResponseField>
     <ResponseField name="nombre" type="string">Product name.</ResponseField>
-    <ResponseField name="categoria" type="string">Product category.</ResponseField>
+    <ResponseField name="categoria" type="string">Product category. Blank categories appear as `"General"`.</ResponseField>
     <ResponseField name="cantidad" type="number">Total units sold in the period.</ResponseField>
     <ResponseField name="total" type="number">Total revenue from this product.</ResponseField>
   </Expandable>
@@ -229,19 +236,19 @@ curl -X POST http://localhost:3000/api/reportes/ventas \
   Time-series data points grouped by the chosen `agrupacion`.
 
   <Expandable title="estadisticas fields">
-    <ResponseField name="clave" type="string">Canonical key for the bucket (e.g. `"2025-01-01"` for `dia`).</ResponseField>
+    <ResponseField name="clave" type="string">Canonical sort key for the bucket (e.g. `"2025-01-01"` for `dia`).</ResponseField>
     <ResponseField name="etiqueta" type="string">Short display label for charts (e.g. `"01/01"`).</ResponseField>
-    <ResponseField name="ventas" type="number">Number of orders in this bucket.</ResponseField>
+    <ResponseField name="ventas" type="number">Number of distinct orders in this bucket.</ResponseField>
     <ResponseField name="ingresos" type="number">Revenue in this bucket.</ResponseField>
     <ResponseField name="unidades" type="number">Units sold in this bucket.</ResponseField>
   </Expandable>
 </ResponseField>
 
 <ResponseField name="ventasPorVendedor" type="array">
-  Aggregated performance metrics per vendor.
+  Up to 8 vendors ranked by revenue, descending.
 
   <Expandable title="ventasPorVendedor fields">
-    <ResponseField name="vendedor" type="string">Vendor display name.</ResponseField>
+    <ResponseField name="vendedor" type="string">Vendor display name, or `"Sin vendedor"` if unassigned.</ResponseField>
     <ResponseField name="ingresos" type="number">Total revenue generated by this vendor.</ResponseField>
     <ResponseField name="unidades" type="number">Total units sold by this vendor.</ResponseField>
     <ResponseField name="ventas" type="number">Number of orders created by this vendor.</ResponseField>
@@ -252,15 +259,16 @@ curl -X POST http://localhost:3000/api/reportes/ventas \
 
 | Status | Reason |
 |--------|--------|
-| `400` | `fechaInicio` or `fechaFin` is missing or not in `YYYY-MM-DD` format. |
+| `400` | `fechaInicio` or `fechaFin` is not in `YYYY-MM-DD` format. |
 | `400` | `fechaInicio` is after `fechaFin`. |
 | `401` | Missing or invalid Bearer token. |
+| `403` | Account is inactive. |
 
 ---
 
 ### GET /api/reportes/historial
 
-Returns up to 50 previously generated reports. **Master** users see all reports; all other roles see only reports they generated themselves.
+Returns up to 50 previously generated reports ordered by creation date descending. **Master** users see all reports; all other roles see only reports they generated themselves.
 
 <Note>
   **Requires:** `Authorization: Bearer <token>`
@@ -285,7 +293,7 @@ curl http://localhost:3000/api/reportes/historial \
     "agrupacion": "dia",
     "totalVentas": 42,
     "ingresosTotales": 10500.00,
-    "generadoEn": "2025-01-31T12:00:00.000Z",
+    "generadoEn": "2025-01-31 12:00",
     "generadoPor": "Ana García"
   }
 ]
@@ -298,7 +306,7 @@ curl http://localhost:3000/api/reportes/historial \
 <ResponseField name="agrupacion" type="string">Time grouping used: `dia`, `semana`, `mes`, or `anio`.</ResponseField>
 <ResponseField name="totalVentas" type="number">Number of orders captured in the report.</ResponseField>
 <ResponseField name="ingresosTotales" type="number">Total revenue captured in the report.</ResponseField>
-<ResponseField name="generadoEn" type="string">ISO 8601 timestamp of when the report was generated.</ResponseField>
+<ResponseField name="generadoEn" type="string">Timestamp of when the report was generated, formatted as `YYYY-MM-DD HH:mm`.</ResponseField>
 <ResponseField name="generadoPor" type="string">Display name of the user who generated the report.</ResponseField>
 
 **Errors**
@@ -306,6 +314,7 @@ curl http://localhost:3000/api/reportes/historial \
 | Status | Reason |
 |--------|--------|
 | `401` | Missing or invalid Bearer token. |
+| `403` | Account is inactive. |
 
 ---
 
@@ -337,7 +346,7 @@ See the full report object structure in the [`POST /api/reportes/ventas`](#post-
 | Status | Reason |
 |--------|--------|
 | `401` | Missing or invalid Bearer token. |
-| `403` | The report belongs to another user and the caller is not a Master. |
+| `403` | The report belongs to another user and the caller is not a Master, or account is inactive. |
 | `404` | No report found with the given ID. |
 
 ---
@@ -374,14 +383,14 @@ curl http://localhost:3000/api/reportes/1/export/pdf \
 | Status | Reason |
 |--------|--------|
 | `401` | Missing or invalid Bearer token. |
-| `403` | The report belongs to another user and the caller is not a Master. |
+| `403` | The report belongs to another user and the caller is not a Master, or account is inactive. |
 | `404` | No report found with the given ID. |
 
 ---
 
 ### GET /api/reportes/:id/imprimir
 
-Returns a browser-ready HTML page formatted for printing. Open in a browser tab and trigger the system print dialog.
+Returns a browser-ready HTML page formatted for printing. Open in a browser tab and the system print dialog launches automatically.
 
 <Note>
   **Requires:** `Authorization: Bearer <token>`
@@ -402,12 +411,12 @@ curl http://localhost:3000/api/reportes/1/imprimir \
 
 | Header | Value |
 |--------|-------|
-| `Content-Type` | `text/html` |
+| `Content-Type` | `text/html; charset=utf-8` |
 
 **Errors**
 
 | Status | Reason |
 |--------|--------|
 | `401` | Missing or invalid Bearer token. |
-| `403` | The report belongs to another user and the caller is not a Master. |
+| `403` | The report belongs to another user and the caller is not a Master, or account is inactive. |
 | `404` | No report found with the given ID. |

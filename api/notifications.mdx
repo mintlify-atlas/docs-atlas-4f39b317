@@ -36,37 +36,37 @@ curl http://localhost:3000/api/notificaciones \
   {
     "id": 12,
     "ordenId": 7,
-    "tipo": "nueva_orden",
+    "tipo": "asignacion",
     "titulo": "Nueva orden asignada",
-    "mensaje": "Se te ha asignado la orden #7 para Tienda López.",
+    "mensaje": "Se te asignó la orden #7 de Tienda López.",
     "leida": false,
-    "fecha": "2025-01-15T14:05:00.000Z"
+    "fecha": "15 Jan 14:05"
   },
   {
     "id": 10,
     "ordenId": 5,
-    "tipo": "estado_actualizado",
-    "titulo": "Estado actualizado",
-    "mensaje": "La orden #5 fue marcada como Entregado.",
+    "tipo": "estado",
+    "titulo": "Orden #5 actualizada",
+    "mensaje": "La orden de Tienda López cambió a \"Entregado\".",
     "leida": true,
-    "fecha": "2025-01-14T09:30:00.000Z"
+    "fecha": "14 Jan 09:30"
   }
 ]
 ```
 
 <ResponseField name="id" type="number">Unique numeric ID of the notification.</ResponseField>
-<ResponseField name="ordenId" type="number">ID of the order that triggered this notification.</ResponseField>
-<ResponseField name="tipo" type="string">Machine-readable event type, e.g. `nueva_orden` or `estado_actualizado`.</ResponseField>
+<ResponseField name="ordenId" type="number">ID of the order that triggered this notification, or `null` for informational notifications.</ResponseField>
+<ResponseField name="tipo" type="string">Event type: `asignacion` (order assigned), `estado` (status changed), or `info` (general message).</ResponseField>
 <ResponseField name="titulo" type="string">Short display title shown in the notification badge.</ResponseField>
 <ResponseField name="mensaje" type="string">Full human-readable notification body.</ResponseField>
 <ResponseField name="leida" type="boolean">`false` if the notification has not yet been viewed; `true` once marked as read.</ResponseField>
-<ResponseField name="fecha" type="string">ISO 8601 timestamp of when the notification was created.</ResponseField>
+<ResponseField name="fecha" type="string">Formatted timestamp of when the notification was created, e.g. `"15 Jan 14:05"`.</ResponseField>
 
 ---
 
 ### PUT /api/notificaciones/:id/leida
 
-Marks a single notification as read for the requesting user.
+Marks a single notification as read. The update only takes effect if the `usuario_id` on the notification matches the value in `x-user-id`.
 
 <Note>
   Pass the user's numeric ID in the `x-user-id` header to confirm ownership before marking the notification.
@@ -94,12 +94,6 @@ curl -X PUT http://localhost:3000/api/notificaciones/12/leida \
 ```json
 { "ok": true }
 ```
-
-**Errors**
-
-| Status | Reason |
-|--------|--------|
-| `404` | No notification found with the given ID for this user. |
 
 ---
 

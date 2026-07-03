@@ -29,22 +29,22 @@ The Yakult App mobile client is a React Native application built with Expo and p
     Open `yakult-app/services/db.ts` and update the `BASE` constant at the top of the file to point to your running backend server.
 
     ```ts
-    // Android emulator — emulator maps 10.0.2.2 → host machine's localhost
-    const BASE = 'http://10.0.2.2:3000/api';
+    // Default — works for iOS simulator and web browser
+    const BASE = 'http://localhost:3000/api';
 
-    // iOS simulator — simulator shares the host machine's network stack
-    // const BASE = 'http://localhost:3000/api';
+    // Android emulator — emulator maps 10.0.2.2 → host machine's localhost
+    // const BASE = 'http://10.0.2.2:3000/api';
 
     // Physical device — use your machine's LAN IP address
     // const BASE = 'http://192.168.1.X:3000/api';
     ```
 
-    Choose the line that matches your target and comment out the others.
+    The file ships with `http://localhost:3000/api` active. Change `BASE` to the line that matches your target and comment out the others.
 
     | Target | `BASE` value |
     |---|---|
+    | iOS simulator / web browser (default) | `http://localhost:3000/api` |
     | Android emulator | `http://10.0.2.2:3000/api` |
-    | iOS simulator | `http://localhost:3000/api` |
     | Physical device (Android or iOS) | `http://<your-LAN-IP>:3000/api` |
 
     To find your LAN IP address:

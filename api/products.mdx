@@ -4,13 +4,13 @@ sidebarTitle: "Products"
 description: "REST endpoints to list, create, update, and delete Yakult products. Each product has a unique SKU, price, stock level, and category."
 ---
 
-The Products API manages the Yakult catalog — the source of truth for what can be sold, at what price, and how much remains in stock. Each product is identified by a human-readable SKU that must be unique across the catalog. When an order is placed, stock is deducted automatically; use these endpoints to inspect or correct inventory levels at any time.
+The Products API manages the Yakult catalog — the source of truth for what can be sold, at what price, and how much remains in stock. Each product is identified by a human-readable SKU that must be unique across the catalog. When an order is placed, stock is deducted automatically; use these endpoints to inspect or correct inventory levels at any time. No authentication is required on any products endpoint.
 
 ---
 
 ### GET /api/productos
 
-Returns the full product catalog, including current stock levels for every item.
+Returns the full product catalog ordered alphabetically by name, including current stock levels for every item. Products with a blank category are returned with `"General"` as the category value.
 
 **Example request**
 
@@ -24,19 +24,19 @@ curl http://localhost:3000/api/productos
 [
   {
     "id": 1,
-    "nombre": "Yakult Original 65ml",
-    "sku": "YKL-ORIG-65",
-    "precio": 15.00,
-    "stock": 500,
-    "categoria": "Bebida probiótica",
-    "creado_en": "2025-01-01T00:00:00.000Z"
-  },
-  {
-    "id": 2,
     "nombre": "Yakult Light 65ml",
     "sku": "YKL-LITE-65",
     "precio": 16.50,
     "stock": 300,
+    "categoria": "General",
+    "creado_en": "2025-01-01T00:00:00.000Z"
+  },
+  {
+    "id": 2,
+    "nombre": "Yakult Original 65ml",
+    "sku": "YKL-ORIG-65",
+    "precio": 15.00,
+    "stock": 500,
     "categoria": "Bebida probiótica",
     "creado_en": "2025-01-01T00:00:00.000Z"
   }
@@ -48,21 +48,21 @@ curl http://localhost:3000/api/productos
 <ResponseField name="sku" type="string">Unique stock-keeping unit identifier.</ResponseField>
 <ResponseField name="precio" type="number">Unit price in the local currency.</ResponseField>
 <ResponseField name="stock" type="number">Available units currently in inventory.</ResponseField>
-<ResponseField name="categoria" type="string">Product category label. May be `null` if not assigned.</ResponseField>
+<ResponseField name="categoria" type="string">Product category label. Blank categories are returned as `"General"`.</ResponseField>
 <ResponseField name="creado_en" type="string">ISO 8601 timestamp of when the product was added.</ResponseField>
 
 ---
 
 ### POST /api/productos
 
-Adds a new product to the catalog.
+Adds a new product to the catalog. No authentication is required.
 
 <ParamField body="nombre" type="string" required>
   Display name of the product, e.g. `"Yakult Original 65ml"`.
 </ParamField>
 
 <ParamField body="sku" type="string" required>
-  Unique stock-keeping unit code, e.g. `"YKL-ORIG-65"`. Must not already exist in the catalog.
+  Unique stock-keeping unit code, e.g. `"YKL-ORIG-65"`.
 </ParamField>
 
 <ParamField body="precio" type="number" required>
@@ -74,7 +74,7 @@ Adds a new product to the catalog.
 </ParamField>
 
 <ParamField body="categoria" type="string">
-  Optional category label to group products (e.g. `"Bebida probiótica"`).
+  Optional category label to group products. Defaults to `"General"` if omitted or left blank.
 </ParamField>
 
 **Example request**
@@ -109,20 +109,13 @@ curl -X POST http://localhost:3000/api/productos \
 <ResponseField name="sku" type="string">SKU as stored.</ResponseField>
 <ResponseField name="precio" type="number">Unit price as stored.</ResponseField>
 <ResponseField name="stock" type="number">Initial stock as stored.</ResponseField>
-<ResponseField name="categoria" type="string">Category label as stored, or `null`.</ResponseField>
-
-**Errors**
-
-| Status | Reason |
-|--------|--------|
-| `400` | A required field (`nombre`, `sku`, `precio`, or `stock`) is missing. |
-| `400` | A product with the given SKU already exists. |
+<ResponseField name="categoria" type="string">Category label as stored. Defaults to `"General"` when not provided.</ResponseField>
 
 ---
 
 ### PUT /api/productos/:id
 
-Replaces all editable fields on an existing product. Supply all fields, not just the ones that changed.
+Replaces all editable fields on an existing product. Supply all five fields — `nombre`, `sku`, `precio`, `stock`, and `categoria`. No authentication is required.
 
 <ParamField path="id" type="number" required>
   Numeric ID of the product to update.
@@ -133,7 +126,7 @@ Replaces all editable fields on an existing product. Supply all fields, not just
 </ParamField>
 
 <ParamField body="sku" type="string" required>
-  Updated SKU. Must remain unique across the catalog.
+  Updated SKU.
 </ParamField>
 
 <ParamField body="precio" type="number" required>
@@ -145,7 +138,7 @@ Replaces all editable fields on an existing product. Supply all fields, not just
 </ParamField>
 
 <ParamField body="categoria" type="string">
-  Updated category label, or omit to leave it unchanged.
+  Updated category label. Defaults to `"General"` if omitted or left blank.
 </ParamField>
 
 **Example request**
@@ -168,19 +161,11 @@ curl -X PUT http://localhost:3000/api/productos/1 \
 { "ok": true }
 ```
 
-**Errors**
-
-| Status | Reason |
-|--------|--------|
-| `400` | A required field is missing. |
-| `400` | The new SKU conflicts with an existing product. |
-| `404` | No product found with the given ID. |
-
 ---
 
 ### DELETE /api/productos/:id
 
-Permanently removes a product from the catalog. This action cannot be undone.
+Permanently removes a product from the catalog. This action cannot be undone. No authentication is required.
 
 <ParamField path="id" type="number" required>
   Numeric ID of the product to delete.
@@ -197,9 +182,3 @@ curl -X DELETE http://localhost:3000/api/productos/1
 ```json
 { "ok": true }
 ```
-
-**Errors**
-
-| Status | Reason |
-|--------|--------|
-| `404` | No product found with the given ID. |

@@ -1,7 +1,7 @@
 ---
-title: "Create and Manage Yakult Distribution Orders"
+title: "Create and Track Yakult Distribution Orders End to End"
 sidebarTitle: "Orders"
-description: "Orders track sales from creation through delivery — with transactional stock deduction, delivery driver assignment, status updates, and WhatsApp notifications."
+description: "Orders track every Yakult sale from creation to delivery — with transactional stock deduction, driver assignment, status updates, and WhatsApp alerts."
 ---
 
 Orders are the core transaction record in Yakult App. Each order connects a client to a set of purchased products, optionally assigns a delivery driver (repartidor), and moves through a three-stage lifecycle from the moment it is placed until it reaches the customer's door. Stock is deducted atomically at creation time, status changes trigger push notifications to the assigned driver, and every status transition can send a pre-composed WhatsApp message directly to the client — making the order system the main coordination point between your sales team, warehouse, and field drivers.
@@ -34,7 +34,7 @@ A full order object returned by the API looks like this:
   "repartidorNombre": "Luis Hernández",
   "total": 97.50,
   "estado": "Pendiente",
-  "fecha": "2024-11-15T16:30:00.000Z",
+  "fecha": "15 nov",
   "items": [
     { "nombre": "Yakult Original 80ml × 5", "cantidad": 2, "precio": 32.50 },
     { "nombre": "Yakult Light 65ml × 5",   "cantidad": 1, "precio": 29.00 }
@@ -93,6 +93,7 @@ The orders resource is mounted at `/api/ordenes`.
     ```bash
     curl -X PUT https://your-api.example.com/api/ordenes/42/estado \
       -H "Content-Type: application/json" \
+      -H "x-user-id: 2" \
       -d '{ "estado": "En camino" }'
     ```
 
@@ -102,7 +103,7 @@ The orders resource is mounted at `/api/ordenes`.
     { "ok": true }
     ```
 
-    The assigned `repartidor` receives a push notification when the status changes — unless the repartidor themselves initiated the change.
+    The assigned `repartidor` receives a push notification when the status changes — unless the repartidor themselves initiated the change. The backend reads the `x-user-id` request header to identify the requestor; if the header value matches the order's `repartidorId`, no notification is sent.
   </Tab>
   <Tab title="Assign Driver">
     Assign or reassign the delivery driver for an existing order. Pass `null` to unassign.
@@ -177,7 +178,7 @@ Any order can have a `repartidorId` assigned at creation time or updated later v
 
 ## Status Change Notifications
 
-When a status change is applied via `PUT /api/ordenes/:id/estado`, the backend checks whether the requestor is the assigned repartidor. If it was someone else (e.g., a manager advancing the status from a dashboard), the repartidor is notified. This prevents drivers from receiving redundant notifications for changes they initiated themselves.
+When a status change is applied via `PUT /api/ordenes/:id/estado`, the backend reads the `x-user-id` request header to identify who made the change. If that user ID differs from the order's `repartidorId`, the assigned driver receives a push notification. If the repartidor themselves sent the request (i.e., `x-user-id` matches `repartidorId`), no notification is sent — preventing drivers from receiving redundant alerts for status changes they initiated themselves.
 
 ## WhatsApp Notifications
 
@@ -189,7 +190,7 @@ Message templates by status:
 |--------|---------|
 | `Pendiente` | Order confirmation listing all items and the total amount |
 | `En camino` | `Tu pedido #42 de Yakult ya va en camino 🚚` |
-| `Entregado` | `Tu pedido #42 fue entregado ✅\n¡Gracias por tu compra!` |
+| `Entregado` | `Tu pedido #42 fue entregado ✅\n¡Gracias por tu compra! 🥛` |
 
 Phone numbers are normalized to the Mexican `wa.me` format automatically:
 

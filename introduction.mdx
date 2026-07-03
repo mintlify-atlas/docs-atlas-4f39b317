@@ -1,7 +1,7 @@
 ---
-title: "Yakult App: Sales Management for Distributors"
+title: "Yakult App: Sales Management Platform for Distributors"
 sidebarTitle: "Introduction"
-description: "Yakult App is a mobile-first sales platform for Yakult distribution teams — combining a React Native app with an Express/MySQL backend for orders, inventory, and reports."
+description: "Yakult App is a mobile-first sales platform for Yakult distributors — React Native + Expo mobile app paired with an Express 5 / MySQL backend."
 ---
 
 Yakult App is a full-stack sales management platform purpose-built for Yakult distribution teams. It gives field promoters, delivery drivers, and master administrators a single, unified tool to manage products, track client accounts, place and fulfill orders, and generate detailed sales reports — all from a mobile device, in real time, anywhere on the local network.
@@ -30,7 +30,7 @@ Yakult App is a full-stack sales management platform purpose-built for Yakult di
 
 Yakult App is composed of two tightly coupled components that together form a complete distribution management system.
 
-**Mobile App (React Native + Expo):** Built with React Native 0.74 and Expo 51 using the file-based `expo-router`, the mobile client is the primary interface for all three user roles. It communicates with the backend exclusively over a local network REST API, storing session tokens in `AsyncStorage` for persistent authentication.
+**Mobile App (React Native + Expo):** Built with React Native 0.74.5 and Expo ~51.0.28 using the file-based `expo-router`, the mobile client is the primary interface for all three user roles. It communicates with the backend exclusively over a local network REST API, storing session tokens in `AsyncStorage` for persistent authentication.
 
 **Backend API (Express + MySQL):** The Express 5 server exposes a RESTful API under the `/api` prefix and connects to a MySQL database through a `mysql2` connection pool. On startup, the server automatically runs `ensureSchema()` to create or migrate all required database tables — meaning no manual SQL setup is needed beyond creating the database itself. All routes are protected with JWT-based authentication issued by the `/api/auth` module.
 
@@ -50,13 +50,13 @@ Yakult App enforces three distinct roles, each with its own scope of access with
 
 | Layer | Technology | Version |
 |---|---|---|
-| Mobile Framework | React Native + Expo | RN 0.74 / Expo 51 |
-| Mobile Navigation | Expo Router | 3.5 |
-| Backend Framework | Express.js | 5.x |
+| Mobile Framework | React Native + Expo | 0.74.5 / ~51.0.28 |
+| Mobile Navigation | Expo Router | ~3.5.23 |
+| Backend Framework | Express.js | ^5.2.1 |
 | Database | MySQL (via mysql2) | — |
-| Authentication | JSON Web Tokens + bcryptjs | JWT 9 / bcryptjs 3 |
-| PDF Generation | PDFKit | 0.19 |
-| Dev Server | Nodemon | 3.x |
+| Authentication | JSON Web Tokens + bcryptjs | ^9.0.3 / ^3.0.3 |
+| PDF Generation | PDFKit | ^0.19.1 |
+| Dev Server | Nodemon | ^3.1.14 |
 
 <Info>
   Yakult App is designed for **local network deployment**. The mobile app and backend must be on the same network (or the same machine via emulator). The backend schema is auto-migrated on every server start via `ensureSchema()`, so the database tables are always kept up to date without manual intervention.

@@ -4,13 +4,13 @@ sidebarTitle: "Clients"
 description: "REST endpoints to manage client records including name, phone number, address, and active status. Active clients can receive WhatsApp order updates."
 ---
 
-The Clients API manages the customer directory for Yakult distributors. Each client record stores the essential contact details needed for order delivery — name, phone number, and address. The `activo` flag determines whether a client appears in order-creation flows; toggling it off lets you retain historical data without exposing the client to new orders. Phone numbers stored here are also used to dispatch WhatsApp notifications when their order status changes.
+The Clients API manages the customer directory for Yakult distributors. Each client record stores the essential contact details needed for order delivery — name, phone number, and address. The `activo` flag determines whether a client appears in order-creation flows; toggling it off lets you retain historical data without exposing the client to new orders. No authentication is required on any clients endpoint.
 
 ---
 
 ### GET /api/clientes
 
-Returns all client records, both active and inactive.
+Returns all client records ordered alphabetically by name, including both active and inactive clients.
 
 **Example request**
 
@@ -24,19 +24,19 @@ curl http://localhost:3000/api/clientes
 [
   {
     "id": 1,
-    "nombre": "Tienda López",
-    "telefono": "6641234567",
-    "direccion": "Calle Morelos 45, Tijuana, BC",
-    "activo": true,
-    "creado_en": "2025-01-05T10:00:00.000Z"
-  },
-  {
-    "id": 2,
     "nombre": "Minisuper Torres",
     "telefono": "6649876543",
     "direccion": "Av. Revolución 120, Tijuana, BC",
-    "activo": false,
+    "activo": 0,
     "creado_en": "2025-01-06T11:30:00.000Z"
+  },
+  {
+    "id": 2,
+    "nombre": "Tienda López",
+    "telefono": "6641234567",
+    "direccion": "Calle Morelos 45, Tijuana, BC",
+    "activo": 1,
+    "creado_en": "2025-01-05T10:00:00.000Z"
   }
 ]
 ```
@@ -45,21 +45,21 @@ curl http://localhost:3000/api/clientes
 <ResponseField name="nombre" type="string">Business or customer name.</ResponseField>
 <ResponseField name="telefono" type="string">Phone number used for WhatsApp order updates.</ResponseField>
 <ResponseField name="direccion" type="string">Delivery address.</ResponseField>
-<ResponseField name="activo" type="boolean">Whether the client can be selected for new orders.</ResponseField>
+<ResponseField name="activo" type="number">Account status as a TINYINT: `1` = active, `0` = inactive.</ResponseField>
 <ResponseField name="creado_en" type="string">ISO 8601 timestamp of when the record was created.</ResponseField>
 
 ---
 
 ### POST /api/clientes
 
-Creates a new client record. Newly created clients are active by default.
+Creates a new client record. Newly created clients are active by default. No authentication is required.
 
 <ParamField body="nombre" type="string" required>
   Business or customer name, e.g. `"Tienda López"`.
 </ParamField>
 
 <ParamField body="telefono" type="string" required>
-  Phone number (10 digits). Used to send WhatsApp notifications on order status changes.
+  Phone number. Used to send WhatsApp notifications on order status changes.
 </ParamField>
 
 <ParamField body="direccion" type="string" required>
@@ -96,17 +96,11 @@ curl -X POST http://localhost:3000/api/clientes \
 <ResponseField name="direccion" type="string">Delivery address as stored.</ResponseField>
 <ResponseField name="activo" type="boolean">Always `true` for a newly created client.</ResponseField>
 
-**Errors**
-
-| Status | Reason |
-|--------|--------|
-| `400` | A required field (`nombre`, `telefono`, or `direccion`) is missing. |
-
 ---
 
 ### PUT /api/clientes/:id
 
-Updates the name, phone number, and address of an existing client. Supply all three fields.
+Updates the name, phone number, and address of an existing client. Supply all three fields. No authentication is required.
 
 <ParamField path="id" type="number" required>
   Numeric ID of the client to update.
@@ -142,18 +136,11 @@ curl -X PUT http://localhost:3000/api/clientes/1 \
 { "ok": true }
 ```
 
-**Errors**
-
-| Status | Reason |
-|--------|--------|
-| `400` | A required field is missing. |
-| `404` | No client found with the given ID. |
-
 ---
 
 ### PUT /api/clientes/:id/activo
 
-Enables or disables a client without deleting their record. Inactive clients are excluded from new order creation.
+Enables or disables a client without deleting their record. Inactive clients are excluded from new order creation. No authentication is required.
 
 <ParamField path="id" type="number" required>
   Numeric ID of the client to update.
@@ -177,18 +164,11 @@ curl -X PUT http://localhost:3000/api/clientes/1/activo \
 { "ok": true }
 ```
 
-**Errors**
-
-| Status | Reason |
-|--------|--------|
-| `400` | `activo` field is missing or not a boolean. |
-| `404` | No client found with the given ID. |
-
 ---
 
 ### DELETE /api/clientes/:id
 
-Permanently deletes a client record. Consider using `PUT /api/clientes/:id/activo` with `activo: false` to preserve order history.
+Permanently deletes a client record. Consider using `PUT /api/clientes/:id/activo` with `activo: false` to preserve order history. No authentication is required.
 
 <ParamField path="id" type="number" required>
   Numeric ID of the client to delete.
@@ -205,9 +185,3 @@ curl -X DELETE http://localhost:3000/api/clientes/1
 ```json
 { "ok": true }
 ```
-
-**Errors**
-
-| Status | Reason |
-|--------|--------|
-| `404` | No client found with the given ID. |

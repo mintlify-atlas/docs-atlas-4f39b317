@@ -1,7 +1,7 @@
 ---
-title: "Manage Users and Roles in Yakult App"
+title: "Yakult App User Management: Roles and Account Control"
 sidebarTitle: "User Management"
-description: "Master users can list, activate, deactivate, change roles, and delete accounts from the Admin panel or via the REST API."
+description: "Master users can list all registered accounts, activate or deactivate logins, assign roles, and permanently delete users via the Admin panel or REST API."
 ---
 
 User management in Yakult App is restricted exclusively to accounts with the **Master** role. Masters can view all registered users, activate or deactivate accounts, promote or demote users between the three available roles, and permanently delete accounts. These operations are accessible both from the in-app Admin screen and directly through the REST API.
@@ -16,7 +16,7 @@ Every user in Yakult App belongs to exactly one of three roles. The table below 
 |---|---|---|---|
 | **Master** | Full administrator. Assigned automatically to `@upa.edu.mx` email addresses or promoted manually. | ✅ | ✅ |
 | **Promotor** | Sales promoter. Default role for non-institutional email addresses. | ❌ | ❌ |
-| **Repartidor** | Delivery driver. Assigned manually by a Master. | ❌ | ❌ |
+| **Repartidor** | Delivery driver. Assigned manually by a Master via the role-change endpoint. Never auto-assigned at registration. | ❌ | ❌ |
 
 ---
 
@@ -169,12 +169,12 @@ curl -X PUT https://your-api/api/auth/usuarios/3/rol \
 
 ### Delete a user
 
-Permanently removes the account and all associated data from the database.
+Permanently removes the account from the database.
 
 **`DELETE /api/auth/usuarios/:id`**
 
 <Warning>
-  Deleting a user is **permanent and irreversible**. There is no soft-delete or recovery mechanism. All data belonging to the user — including their activity history — is removed immediately. Prefer deactivating an account (`activo: false`) if you only need to revoke login access.
+  Deleting a user is **permanent and irreversible**. There is no soft-delete or recovery mechanism. Prefer deactivating an account (`activo: false`) if you only need to revoke login access.
 </Warning>
 
 #### Example — delete user 5
@@ -221,16 +221,16 @@ The Admin screen in the Yakult App mobile interface gives Master users a visual 
 The following rules are enforced by the application to prevent accidental lock-outs:
 
 <CardGroup cols={2}>
-  <Card title="Cannot modify your own role" icon="user-shield">
-    A Master user cannot change their own role through the Admin screen or the API. This prevents accidental self-demotion that would lock the user out of the admin panel.
-  </Card>
-  <Card title="Cannot delete yourself" icon="trash-slash">
-    A Master cannot delete their own account while logged in. At least one active Master account must always be accessible.
-  </Card>
   <Card title="Deletion is permanent" icon="triangle-exclamation">
     There is no recycle bin or undo for deleted users. Always deactivate first, wait for any dispute period, then delete only when certain.
   </Card>
   <Card title="Role values are strict" icon="lock">
-    The API rejects any role value outside of `Master`, `Promotor`, and `Repartidor` with a `400 Bad Request` response.
+    The API rejects any role value outside of `Master`, `Promotor`, and `Repartidor` with a `400 Bad Request` response and the message `"Rol inválido."`.
+  </Card>
+  <Card title="Repartidor is manually assigned" icon="user-gear">
+    The `Repartidor` role is never auto-assigned at registration. It must be explicitly set by a Master user via `PUT /api/auth/usuarios/:id/rol`.
+  </Card>
+  <Card title="Deactivated accounts cannot log in" icon="user-slash">
+    A deactivated user receives a `403` response on every login attempt until a Master reactivates their account.
   </Card>
 </CardGroup>

@@ -1,7 +1,7 @@
 ---
-title: "Yakult App Database Schema and Data Model"
+title: "Yakult App Database Schema — Tables and Data Model"
 sidebarTitle: "Data Model"
-description: "The Yakult App MySQL schema covers productos, clientes, usuarios, ordenes, orden_items, notificaciones, and reportes_ventas — with auto-migration on startup."
+description: "Complete reference for yakult_db: seven tables, foreign keys, ENUM constraints, and indexes — auto-migrated by ensureSchema() on every server startup."
 ---
 
 The Yakult App database (`yakult_db`) is a normalized MySQL schema of seven tables that together model the full lifecycle of a Yakult distribution operation — from product catalog and client registry, through order creation and delivery, to saved sales reports. The schema is never manually migrated; instead, `backend/schema.js` exports an `ensureSchema()` function that runs on every server start. It creates any missing tables, adds any missing columns to existing tables, and creates any missing indexes — all idempotently, so it is safe to run on a brand-new database or one that has been in production for months without risk of data loss.

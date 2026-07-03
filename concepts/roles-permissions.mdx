@@ -1,10 +1,10 @@
 ---
-title: "User Roles and Permissions in Yakult App"
+title: "User Roles and Permissions — Yakult App Role System"
 sidebarTitle: "Roles & Permissions"
-description: "Yakult App has three roles — Master, Promotor, and Repartidor — each with distinct access levels for managing users, orders, and reports."
+description: "Yakult App has three roles — Master, Promotor, and Repartidor — each with distinct access levels for managing users, orders, and sales reports."
 ---
 
-Yakult App enforces a three-tier role system that matches the real-world structure of a Yakult distribution operation. A **Master** is the administrator who oversees the whole platform — they can manage users, view every report, and perform any operation. A **Promotor** is a sales representative who creates orders on behalf of clients and manages the product and client catalogs. A **Repartidor** is a delivery driver whose interaction with the app is focused entirely on the orders assigned to them: they receive push-style in-app notifications when an order is assigned and can update an order's status to delivered. Role assignment happens automatically at registration based on the registrant's email domain, and any account can be suspended by a Master regardless of its role.
+Yakult App enforces a three-tier role system that matches the real-world structure of a Yakult distribution operation. A **Master** is the administrator who oversees the whole platform — they can manage users, view every report, and perform any operation. A **Promotor** is a sales representative who creates orders on behalf of clients and manages the product and client catalogs. A **Repartidor** is a delivery driver whose interaction with the app is focused entirely on the orders assigned to them: they receive in-app notifications when an order is assigned and can update an order's status to delivered. At registration, role assignment is automatic: `@upa.edu.mx` addresses become Masters and all other addresses become Promotors. The Repartidor role is never auto-assigned — a Master must promote a registered Promotor to Repartidor from the Admin screen. Any account can be suspended by a Master regardless of its role.
 
 ## Role Capabilities
 
