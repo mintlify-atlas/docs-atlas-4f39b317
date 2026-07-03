@@ -1,0 +1,193 @@
+---
+title: "Manage Your Yakult Product Catalog"
+sidebarTitle: "Products"
+description: "Add, edit, and delete products with SKU, price, stock quantity, and category. Stock is automatically deducted when orders are created."
+---
+
+The Products module is the foundation of Yakult App's inventory system. It lets distributors maintain a live catalog of every Yakult SKU they carry — tracking prices, stock levels, and categories so that sales orders always reflect what is actually available on the shelf. Every change made here is immediately visible to all mobile app users, keeping the field sales team and the warehouse in sync without any manual reconciliation.
+
+## Product Fields
+
+Each product record contains the following fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | integer | Auto-incremented primary key |
+| `nombre` | string | Display name of the product |
+| `sku` | string | Unique stock-keeping unit code |
+| `precio` | decimal | Unit sale price |
+| `stock` | integer | Current units available |
+| `categoria` | string | Product group (defaults to `'General'`) |
+| `creado_en` | timestamp | Record creation timestamp |
+
+<Note>
+  If `categoria` is submitted as an empty string or omitted entirely, the backend automatically coerces it to `'General'` using `COALESCE(NULLIF(categoria,''), 'General')` on reads and `categoria || 'General'` on writes. You never need to guard against a blank category on the client side.
+</Note>
+
+## Sample Product Object
+
+```json
+{
+  "id": 7,
+  "nombre": "Yakult Original 80ml × 5",
+  "sku": "YK-ORI-5PK",
+  "precio": 32.50,
+  "stock": 240,
+  "categoria": "Original",
+  "creado_en": "2024-11-03T14:22:10.000Z"
+}
+```
+
+## API Endpoints
+
+The products resource is mounted at `/api/productos`.
+
+<Tabs>
+  <Tab title="List Products">
+    Retrieve every product ordered alphabetically by name.
+
+    ```bash
+    curl https://your-api.example.com/api/productos
+    ```
+
+    **Response** — array of product objects:
+
+    ```json
+    [
+      {
+        "id": 1,
+        "nombre": "Yakult Light 65ml × 5",
+        "sku": "YK-LGT-5PK",
+        "precio": 29.00,
+        "stock": 180,
+        "categoria": "Light",
+        "creado_en": "2024-10-01T09:00:00.000Z"
+      },
+      {
+        "id": 7,
+        "nombre": "Yakult Original 80ml × 5",
+        "sku": "YK-ORI-5PK",
+        "precio": 32.50,
+        "stock": 240,
+        "categoria": "Original",
+        "creado_en": "2024-11-03T14:22:10.000Z"
+      }
+    ]
+    ```
+  </Tab>
+  <Tab title="Create Product">
+    Add a new product to the catalog. `nombre`, `sku`, `precio`, and `stock` are required. `categoria` is optional and defaults to `'General'`.
+
+    ```bash
+    curl -X POST https://your-api.example.com/api/productos \
+      -H "Content-Type: application/json" \
+      -d '{
+        "nombre": "Yakult Original 80ml × 5",
+        "sku": "YK-ORI-5PK",
+        "precio": 32.50,
+        "stock": 240,
+        "categoria": "Original"
+      }'
+    ```
+
+    **Response** — the newly created product:
+
+    ```json
+    {
+      "id": 7,
+      "nombre": "Yakult Original 80ml × 5",
+      "sku": "YK-ORI-5PK",
+      "precio": 32.50,
+      "stock": 240,
+      "categoria": "Original"
+    }
+    ```
+  </Tab>
+  <Tab title="Update Product">
+    Update all fields of an existing product by its `id`. All body fields are required — this is a full replacement, not a partial patch.
+
+    ```bash
+    curl -X PUT https://your-api.example.com/api/productos/7 \
+      -H "Content-Type: application/json" \
+      -d '{
+        "nombre": "Yakult Original 80ml × 5",
+        "sku": "YK-ORI-5PK",
+        "precio": 34.00,
+        "stock": 240,
+        "categoria": "Original"
+      }'
+    ```
+
+    **Response:**
+
+    ```json
+    { "ok": true }
+    ```
+  </Tab>
+  <Tab title="Delete Product">
+    Permanently remove a product from the catalog.
+
+    ```bash
+    curl -X DELETE https://your-api.example.com/api/productos/7
+    ```
+
+    **Response:**
+
+    ```json
+    { "ok": true }
+    ```
+  </Tab>
+</Tabs>
+
+## Automatic Stock Deduction
+
+When a new order is created, the backend deducts stock for every line item inside a single database transaction. This guarantees that stock counts are always consistent — even if two orders are submitted at the same moment — because the deduction and the order insertion either both succeed or both roll back together.
+
+The deduction is executed for each item in the order with:
+
+```sql
+UPDATE productos SET stock = stock - ? WHERE id = ?
+```
+
+<Steps>
+  <Step title="Order submitted">
+    The mobile app POSTs to `/api/ordenes` with an `items` array containing `productoId`, `cantidad`, and `precio` for each line.
+  </Step>
+  <Step title="Transaction opens">
+    The backend begins a MySQL transaction to ensure atomicity across all writes.
+  </Step>
+  <Step title="Order and items inserted">
+    The order header and each `orden_items` row are inserted within the transaction.
+  </Step>
+  <Step title="Stock decremented">
+    For each item, `stock = stock - cantidad` is applied to the matching product row — all inside the same transaction.
+  </Step>
+  <Step title="Transaction committed">
+    Once every write succeeds, the transaction commits and the updated stock becomes visible catalog-wide.
+  </Step>
+</Steps>
+
+## Low-Stock Warning
+
+The mobile app monitors stock levels and surfaces a visual alert when inventory runs low. Any product with fewer than **50 units** in stock displays a ⚠️ warning indicator next to its name in the product list, prompting the distributor to reorder before a stockout occurs.
+
+<Tip>
+  Restock products before processing large orders. Because stock is deducted transactionally at order creation time, an order will succeed even if it brings a product's stock below 50 — the warning is informational, not a hard block.
+</Tip>
+
+## Mobile UI Overview
+
+<CardGroup cols={2}>
+  <Card title="Product List" icon="list">
+    Displays all catalog items alphabetically. Products with stock below 50 show a ⚠️ badge. Tap any row to open the edit form.
+  </Card>
+  <Card title="Add / Edit Form" icon="pencil">
+    A modal form collects name, SKU, price, stock, and category. Submits to POST or PUT depending on whether a product is being created or updated.
+  </Card>
+  <Card title="Delete Confirmation" icon="trash">
+    Tapping delete opens a confirmation dialog before sending the DELETE request, preventing accidental removal of catalog items.
+  </Card>
+  <Card title="Real-Time Stock" icon="box">
+    Stock counts reflect all committed orders. The list refreshes whenever the screen is focused, ensuring field reps always see current availability.
+  </Card>
+</CardGroup>

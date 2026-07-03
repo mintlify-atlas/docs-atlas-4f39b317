@@ -1,0 +1,333 @@
+---
+title: "Generate and Export Yakult Sales Reports"
+sidebarTitle: "Reports"
+description: "Generate filterable sales reports with date ranges, product/client/vendor filters, and grouping by day, week, month, or year. Export as PDF or printable HTML."
+---
+
+The Reports module gives Yakult distributors a complete picture of sales performance across any time window. Masters can generate reports across all vendors, clients, and products, while Promotors and Repartidores can generate and revisit their own reports. Every report is saved automatically to the history the moment it is generated, so your team always has a full audit trail of past analyses. Supported outputs include an interactive data response, a branded PDF with charts, and a print-ready HTML page.
+
+## Authentication
+
+All report endpoints are protected by JWT. Every request must include a valid bearer token in the `Authorization` header.
+
+```bash
+Authorization: Bearer <your_jwt_token>
+```
+
+Attempting to call any report endpoint without a valid token returns `401 Unauthorized`.
+
+---
+
+## Fetch Available Filter Options
+
+Before building a report form or API call, retrieve the valid filter values from the options endpoint. This returns the full lists of clients, products, categories, and vendors that are available in the system.
+
+```bash
+GET /api/reportes/opciones
+```
+
+**Response**
+
+```json
+{
+  "clientes": [
+    { "id": 1, "nombre": "Tienda López" }
+  ],
+  "productos": [
+    { "id": 1, "nombre": "Yakult Original 65ml", "categoria": "Bebida probiótica" }
+  ],
+  "categorias": ["Bebida probiótica", "General"],
+  "vendedores": [
+    { "id": 2, "nombre": "Ana García", "rol": "Promotor" }
+  ]
+}
+```
+
+<Tip>
+  Always call `GET /api/reportes/opciones` first to populate your filter dropdowns with real IDs. Passing an `id` that does not exist in the system will produce an empty report rather than an error.
+</Tip>
+
+---
+
+## Generate a Report
+
+Submit a `POST` request to create a new report. Only `fechaInicio` and `fechaFin` are required — all other filters are optional and default to `null` (no filter applied).
+
+```bash
+POST /api/reportes/ventas
+```
+
+### Request Body
+
+```json
+{
+  "nombre": "Reporte Enero 2025",
+  "fechaInicio": "2025-01-01",
+  "fechaFin": "2025-01-31",
+  "clienteId": null,
+  "productoId": null,
+  "categoria": null,
+  "vendedorId": null,
+  "agrupacion": "dia"
+}
+```
+
+### Filter Reference
+
+<CardGroup cols={2}>
+  <Card title="fechaInicio / fechaFin" icon="calendar">
+    **Required.** Both dates must follow `YYYY-MM-DD` format, and `fechaInicio` cannot be after `fechaFin`.
+  </Card>
+  <Card title="clienteId" icon="store">
+    **Optional.** Limits results to a single client. Use the numeric `id` from the options endpoint.
+  </Card>
+  <Card title="productoId" icon="bottle-water">
+    **Optional.** Limits results to a single product SKU. Use the numeric `id` from the options endpoint.
+  </Card>
+  <Card title="categoria" icon="tag">
+    **Optional.** Limits results to a product category string (e.g. `"Bebida probiótica"`).
+  </Card>
+  <Card title="vendedorId" icon="user">
+    **Optional.** Limits results to a single vendor. Masters only — Promotors/Repartidores always see their own data.
+  </Card>
+  <Card title="agrupacion" icon="chart-bar">
+    **Optional.** Controls how the time-series statistics are bucketed. Defaults to `dia`.
+  </Card>
+</CardGroup>
+
+### Grouping (`agrupacion`) Values
+
+| Value | Buckets the time series by | Typical use case |
+|-------|---------------------------|------------------|
+| `dia` | Individual calendar day | Short ranges — a week or single month |
+| `semana` | ISO week number | Multi-month comparisons |
+| `mes` | Calendar month | Quarterly or annual overviews |
+| `anio` | Calendar year | Multi-year trend lines |
+
+### Validation Rules
+
+<Warning>
+  The API returns `400 Bad Request` if any of the following conditions are violated:
+  - `fechaInicio` or `fechaFin` is missing or not in `YYYY-MM-DD` format.
+  - `fechaInicio` is after `fechaFin`.
+  - `agrupacion` is not one of `dia`, `semana`, `mes`, or `anio`.
+</Warning>
+
+### Example `curl` Request
+
+```bash
+curl -X POST https://your-api.com/api/reportes/ventas \
+  -H "Authorization: Bearer <your_jwt_token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "nombre": "Reporte Enero 2025",
+    "fechaInicio": "2025-01-01",
+    "fechaFin": "2025-01-31",
+    "clienteId": null,
+    "productoId": null,
+    "categoria": null,
+    "vendedorId": null,
+    "agrupacion": "dia"
+  }'
+```
+
+---
+
+## Report Response Structure
+
+A successful `POST` returns a fully populated report object. The response is divided into five sections described below.
+
+```json
+{
+  "id": 1,
+  "nombre": "Reporte Enero 2025",
+  "filtros": {
+    "fechaInicio": "2025-01-01",
+    "fechaFin": "2025-01-31",
+    "clienteId": null,
+    "productoId": null,
+    "categoria": null,
+    "vendedorId": null,
+    "agrupacion": "dia"
+  },
+  "generadoPor": { "id": 1, "nombre": "Admin", "rol": "Master" },
+  "generadoEn": "2025-01-31T12:00:00.000Z",
+  "resumen": {
+    "totalVentas": 42,
+    "unidadesVendidas": 840,
+    "ingresosTotales": 10500.00
+  },
+  "ventas": [
+    {
+      "numeroVenta": 5,
+      "fecha": "2025-01-15 10:23",
+      "cliente": "Tienda López",
+      "vendedor": "Ana García",
+      "productosVendidos": "Yakult Original 65ml x20, Yakult Light x10",
+      "cantidad": 30,
+      "total": 750.00
+    }
+  ],
+  "productosMasVendidos": [
+    {
+      "id": 1,
+      "nombre": "Yakult Original 65ml",
+      "categoria": "Bebida probiótica",
+      "cantidad": 500,
+      "total": 6000.00
+    }
+  ],
+  "estadisticas": [
+    {
+      "clave": "2025-01-01",
+      "etiqueta": "01/01",
+      "ventas": 3,
+      "ingresos": 750.00,
+      "unidades": 30
+    }
+  ],
+  "ventasPorVendedor": [
+    {
+      "vendedor": "Ana García",
+      "ingresos": 5000.00,
+      "unidades": 400,
+      "ventas": 20
+    }
+  ]
+}
+```
+
+### Section Breakdown
+
+<Steps>
+  <Step title="resumen — Totals">
+    Three aggregate KPIs covering the full filtered period: `totalVentas` (number of transactions), `unidadesVendidas` (total product units), and `ingresosTotales` (revenue in local currency). These power the performance metrics card in the PDF export.
+  </Step>
+  <Step title="ventas — Transaction List">
+    A flat list of every matching sale. Each entry includes the sale number, timestamp, client name, vendor name, a human-readable product summary, unit count, and the transaction total.
+  </Step>
+  <Step title="productosMasVendidos — Top Products">
+    Up to 10 products ranked by units sold, including product ID, name, category, total units, and revenue. Rendered as the top products table in the PDF.
+  </Step>
+  <Step title="estadisticas — Time Series">
+    One entry per time bucket (controlled by `agrupacion`). Each bucket contains a machine-readable `clave`, a display `etiqueta`, plus `ventas`, `ingresos`, and `unidades` for that period. Powers the bar chart in the PDF.
+  </Step>
+  <Step title="ventasPorVendedor — Vendor Breakdown">
+    Aggregated revenue, unit count, and transaction count per vendor. Rendered as the vendor donut chart in the PDF.
+  </Step>
+</Steps>
+
+<Note>
+  Generating a report via `POST /api/reportes/ventas` **saves it automatically**. You do not need a separate save step. The returned `id` can be used immediately to retrieve, export, or print the report.
+</Note>
+
+---
+
+## Report History
+
+Retrieve a list of previously generated reports, ordered by creation date (most recent first). The endpoint returns up to 50 reports.
+
+```bash
+GET /api/reportes/historial
+```
+
+```bash
+curl https://your-api.com/api/reportes/historial \
+  -H "Authorization: Bearer <your_jwt_token>"
+```
+
+### Role-Based Visibility
+
+| Role | Reports visible in historial |
+|------|------------------------------|
+| **Master** | All reports generated by any user in the system |
+| **Promotor** | Only reports that user generated |
+| **Repartidor** | Only reports that user generated |
+
+---
+
+## Retrieve a Single Report
+
+Fetch the full data object for any saved report by its ID.
+
+```bash
+GET /api/reportes/:id
+```
+
+```bash
+curl https://your-api.com/api/reportes/1 \
+  -H "Authorization: Bearer <your_jwt_token>"
+```
+
+The response structure is identical to the generation response. If a non-Master user attempts to retrieve a report generated by a different user, the API returns `403 Forbidden`.
+
+---
+
+## Export as PDF
+
+Download a professionally formatted PDF file for any saved report.
+
+```bash
+GET /api/reportes/:id/export/pdf
+```
+
+```bash
+curl https://your-api.com/api/reportes/1/export/pdf \
+  -H "Authorization: Bearer <your_jwt_token>" \
+  --output reporte-enero-2025.pdf
+```
+
+The response uses `Content-Type: application/pdf` and includes a `Content-Disposition: attachment` header so browsers trigger a file download automatically.
+
+### PDF Contents
+
+<CardGroup cols={2}>
+  <Card title="Header" icon="file-pdf">
+    Report name, date range, applied filters, and the name and role of the user who generated it.
+  </Card>
+  <Card title="Performance Metrics Card" icon="chart-line">
+    The three `resumen` KPIs displayed prominently — total sales, units sold, and total revenue.
+  </Card>
+  <Card title="Bar Chart" icon="chart-bar">
+    A visual time series using the `estadisticas` data, bucketed by the chosen `agrupacion`. Rendered in primary green `#1B7A5E`.
+  </Card>
+  <Card title="Period Breakdown Table" icon="table">
+    A tabular version of `estadisticas` — every time bucket with its sales count, units, and revenue.
+  </Card>
+  <Card title="Vendor Donut Chart" icon="chart-pie">
+    A proportional donut chart built from `ventasPorVendedor`, showing each vendor's share of total revenue.
+  </Card>
+  <Card title="Top Products Table" icon="list-ol">
+    The `productosMasVendidos` list formatted as a ranked table with product name, category, units, and revenue.
+  </Card>
+</CardGroup>
+
+---
+
+## Print as HTML
+
+Open a browser-print-ready HTML version of the report. The page includes a **Print** button and automatically triggers `window.print()` on load.
+
+```bash
+GET /api/reportes/:id/imprimir
+```
+
+```bash
+curl https://your-api.com/api/reportes/1/imprimir \
+  -H "Authorization: Bearer <your_jwt_token>"
+```
+
+The response is `Content-Type: text/html`. This endpoint is typically opened directly in a browser tab rather than consumed by an API client.
+
+---
+
+## Endpoint Summary
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/reportes/opciones` | Fetch valid filter values |
+| `POST` | `/api/reportes/ventas` | Generate (and save) a report |
+| `GET` | `/api/reportes/historial` | List saved reports (role-filtered) |
+| `GET` | `/api/reportes/:id` | Retrieve a single saved report |
+| `GET` | `/api/reportes/:id/export/pdf` | Download report as PDF |
+| `GET` | `/api/reportes/:id/imprimir` | Open print-ready HTML page |

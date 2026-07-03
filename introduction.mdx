@@ -1,0 +1,63 @@
+---
+title: "Yakult App: Sales Management for Distributors"
+sidebarTitle: "Introduction"
+description: "Yakult App is a mobile-first sales platform for Yakult distribution teams — combining a React Native app with an Express/MySQL backend for orders, inventory, and reports."
+---
+
+Yakult App is a full-stack sales management platform purpose-built for Yakult distribution teams. It gives field promoters, delivery drivers, and master administrators a single, unified tool to manage products, track client accounts, place and fulfill orders, and generate detailed sales reports — all from a mobile device, in real time, anywhere on the local network.
+
+## Key Capabilities
+
+<CardGroup cols={2}>
+  <Card title="Product Management" icon="box-open" href="/features/products">
+    Maintain a live catalog of Yakult products with pricing and stock information. Promotors can browse and add products to orders directly from their mobile device.
+  </Card>
+  <Card title="Client Management" icon="address-book" href="/features/clients">
+    Keep a structured directory of customers and accounts. Track purchase history and contact details to support consistent, relationship-driven sales.
+  </Card>
+  <Card title="Order Management" icon="clipboard-list" href="/features/orders">
+    Create, update, and fulfill orders end-to-end. Orders flow from Promotor to Repartidor (delivery), with status tracked at every step.
+  </Card>
+  <Card title="Sales Reports" icon="chart-bar" href="/features/reports">
+    Generate PDF sales reports powered by PDFKit. Summarize revenue, order volume, and product performance across any time range.
+  </Card>
+  <Card title="Real-Time Notifications" icon="bell" href="/features/notifications">
+    Push in-app notifications to team members when orders are created, updated, or require attention — keeping the whole distribution team in sync.
+  </Card>
+</CardGroup>
+
+## Architecture Overview
+
+Yakult App is composed of two tightly coupled components that together form a complete distribution management system.
+
+**Mobile App (React Native + Expo):** Built with React Native 0.74 and Expo 51 using the file-based `expo-router`, the mobile client is the primary interface for all three user roles. It communicates with the backend exclusively over a local network REST API, storing session tokens in `AsyncStorage` for persistent authentication.
+
+**Backend API (Express + MySQL):** The Express 5 server exposes a RESTful API under the `/api` prefix and connects to a MySQL database through a `mysql2` connection pool. On startup, the server automatically runs `ensureSchema()` to create or migrate all required database tables — meaning no manual SQL setup is needed beyond creating the database itself. All routes are protected with JWT-based authentication issued by the `/api/auth` module.
+
+The two components communicate over the local network. In development with an Android emulator, the mobile app reaches the backend at `http://10.0.2.2:3000/api`. On a physical device, the app is pointed at the host machine's LAN IP address.
+
+## User Roles
+
+Yakult App enforces three distinct roles, each with its own scope of access within the platform:
+
+| Role | Description |
+|---|---|
+| **Master** | Full administrative access. Can manage users, view all reports, and configure the platform. Automatically granted to accounts registered with an `@upa.edu.mx` email address. |
+| **Promotor** | Field sales representative. Can manage clients, create orders, and browse the product catalog. The default role for all non-institutional registrations. |
+| **Repartidor** | Delivery personnel. Responsible for fulfilling and marking orders as delivered once dispatched by a Promotor. |
+
+## Tech Stack
+
+| Layer | Technology | Version |
+|---|---|---|
+| Mobile Framework | React Native + Expo | RN 0.74 / Expo 51 |
+| Mobile Navigation | Expo Router | 3.5 |
+| Backend Framework | Express.js | 5.x |
+| Database | MySQL (via mysql2) | — |
+| Authentication | JSON Web Tokens + bcryptjs | JWT 9 / bcryptjs 3 |
+| PDF Generation | PDFKit | 0.19 |
+| Dev Server | Nodemon | 3.x |
+
+<Info>
+  Yakult App is designed for **local network deployment**. The mobile app and backend must be on the same network (or the same machine via emulator). The backend schema is auto-migrated on every server start via `ensureSchema()`, so the database tables are always kept up to date without manual intervention.
+</Info>

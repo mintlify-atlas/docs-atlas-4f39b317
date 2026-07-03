@@ -1,0 +1,200 @@
+---
+title: "Manage Clients and Customer Records"
+sidebarTitle: "Clients"
+description: "Create and manage client records including name, phone number, address, and active status. Search, filter, and toggle clients from the mobile app."
+---
+
+The Clients module is where Yakult App stores all of your customer relationships. Every client record holds the contact and location details your sales team needs in the field — and because each record carries an active/inactive status, you can retire a customer without losing their historical order data. The mobile app makes it fast to find any client through real-time search and status filtering, and the stored phone number doubles as a direct gateway to WhatsApp for sending order updates.
+
+## Client Fields
+
+Each client record contains the following fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | integer | Auto-incremented primary key |
+| `nombre` | string | Full client name |
+| `telefono` | string | 10-digit Mexican mobile number |
+| `direccion` | string | Delivery address |
+| `activo` | boolean | Whether the client is active (`true` by default on creation) |
+| `creado_en` | timestamp | Record creation timestamp |
+
+## Sample Client Object
+
+```json
+{
+  "id": 14,
+  "nombre": "María González",
+  "telefono": "5512345678",
+  "direccion": "Av. Insurgentes Sur 1234, Col. Del Valle",
+  "activo": true,
+  "creado_en": "2024-09-18T10:45:00.000Z"
+}
+```
+
+## Validation Rules
+
+The mobile app enforces the following validation before any create or update request is sent to the API:
+
+<CardGroup cols={3}>
+  <Card title="nombre" icon="user">
+    Letters (and spaces) only — no numbers or special characters. Cannot be empty.
+  </Card>
+  <Card title="telefono" icon="phone">
+    Exactly **10 digits** — no spaces, dashes, or country codes. The app strips non-digit characters before validating.
+  </Card>
+  <Card title="direccion" icon="location-dot">
+    Minimum **5 characters**. Cannot be blank or a trivial placeholder.
+  </Card>
+</CardGroup>
+
+<Note>
+  These validations are enforced client-side in the mobile app. If you call the API directly (e.g., via `curl` or an integration), the backend will accept the record as-is. Always sanitize inputs on your own side when bypassing the mobile UI.
+</Note>
+
+## API Endpoints
+
+The clients resource is mounted at `/api/clientes`.
+
+<Tabs>
+  <Tab title="List Clients">
+    Retrieve all client records ordered alphabetically by name.
+
+    ```bash
+    curl https://your-api.example.com/api/clientes
+    ```
+
+    **Response** — array of client objects:
+
+    ```json
+    [
+      {
+        "id": 14,
+        "nombre": "María González",
+        "telefono": "5512345678",
+        "direccion": "Av. Insurgentes Sur 1234, Col. Del Valle",
+        "activo": true,
+        "creado_en": "2024-09-18T10:45:00.000Z"
+      }
+    ]
+    ```
+  </Tab>
+  <Tab title="Create Client">
+    Add a new client. `nombre`, `telefono`, and `direccion` are required. New clients are set to `activo: true` automatically.
+
+    ```bash
+    curl -X POST https://your-api.example.com/api/clientes \
+      -H "Content-Type: application/json" \
+      -d '{
+        "nombre": "María González",
+        "telefono": "5512345678",
+        "direccion": "Av. Insurgentes Sur 1234, Col. Del Valle"
+      }'
+    ```
+
+    **Response** — the newly created client:
+
+    ```json
+    {
+      "id": 14,
+      "nombre": "María González",
+      "telefono": "5512345678",
+      "direccion": "Av. Insurgentes Sur 1234, Col. Del Valle",
+      "activo": true
+    }
+    ```
+  </Tab>
+  <Tab title="Update Client">
+    Update the name, phone, and address of an existing client. This is a full replacement of all three fields.
+
+    ```bash
+    curl -X PUT https://your-api.example.com/api/clientes/14 \
+      -H "Content-Type: application/json" \
+      -d '{
+        "nombre": "María González Ruiz",
+        "telefono": "5512345678",
+        "direccion": "Calle Morelos 88, Col. Centro"
+      }'
+    ```
+
+    **Response:**
+
+    ```json
+    { "ok": true }
+    ```
+  </Tab>
+  <Tab title="Toggle Active Status">
+    Activate or deactivate a client without deleting their record. Use this instead of deleting when you want to preserve order history.
+
+    ```bash
+    # Deactivate a client
+    curl -X PUT https://your-api.example.com/api/clientes/14/activo \
+      -H "Content-Type: application/json" \
+      -d '{ "activo": false }'
+
+    # Re-activate a client
+    curl -X PUT https://your-api.example.com/api/clientes/14/activo \
+      -H "Content-Type: application/json" \
+      -d '{ "activo": true }'
+    ```
+
+    **Response:**
+
+    ```json
+    { "ok": true }
+    ```
+  </Tab>
+  <Tab title="Delete Client">
+    Permanently remove a client record. This action is irreversible. Prefer toggling `activo: false` to retain historical data.
+
+    ```bash
+    curl -X DELETE https://your-api.example.com/api/clientes/14
+    ```
+
+    **Response:**
+
+    ```json
+    { "ok": true }
+    ```
+  </Tab>
+</Tabs>
+
+## Search and Filtering
+
+The mobile app provides two complementary ways to narrow down the client list without any additional API calls — both operate on the full list already loaded in memory.
+
+<CardGroup cols={2}>
+  <Card title="Search" icon="magnifying-glass">
+    The search bar matches against both `nombre` and `telefono` simultaneously as you type, so you can find a client by partial name or by part of their phone number.
+  </Card>
+  <Card title="Status Filter" icon="filter">
+    A segmented control lets you switch between three views: **Todos** (all clients), **Activos** (only `activo: true`), and **Inactivos** (only `activo: false`). The filter stacks with search.
+  </Card>
+</CardGroup>
+
+## WhatsApp Integration
+
+The `telefono` field stored on each client record is the foundation of Yakult App's WhatsApp notification system. When a sales rep wants to notify a client about their order, the app constructs a `wa.me` deep-link using the stored number.
+
+The link is built as follows:
+
+```ts
+const waLink = (telefono: string, texto: string) => {
+  const digits = String(telefono || '').replace(/\D/g, '');
+  if (!digits) return null;
+  const num = digits.startsWith('52') ? digits : `52${digits}`;
+  return `https://wa.me/${num}?text=${encodeURIComponent(texto)}`;
+};
+```
+
+The function strips any non-digit characters and prepends Mexico's country code (`52`) if it is not already present, resulting in links of the form:
+
+```
+https://wa.me/525512345678?text=Tu%20pedido%20fue%20entregado%20%E2%9C%85
+```
+
+Tapping the link opens WhatsApp with the client's number pre-filled and the message pre-composed, ready to send in one tap. Message content varies by order status — see the [Orders](/features/orders) page for the full set of templates.
+
+<Tip>
+  Store phone numbers as bare 10-digit strings (e.g., `5512345678`) and let the app handle country code prefixing. Storing numbers with a leading `52` or `+52` is also supported — the link builder detects the prefix and avoids doubling it.
+</Tip>

@@ -1,0 +1,151 @@
+---
+title: "Configure the Yakult App MySQL Database"
+sidebarTitle: "Database"
+description: "Set up the yakult_db MySQL database for Yakult App — create the database, import the seed schema, and understand the auto-migration system."
+---
+
+Yakult App uses MySQL as its primary data store. All sales orders, client records, products, user accounts, notifications, and generated reports are persisted in a single database named `yakult_db`. The backend is designed to manage its own schema — on every startup it inspects the database and applies any missing tables, columns, or indexes automatically. You only need to create the empty database and supply valid credentials; the rest is handled for you.
+
+## Requirements
+
+- **MySQL 8.0+** (recommended) — older 5.7 installations may work but are not tested
+- Database name: **`yakult_db`**
+- A MySQL user with `CREATE`, `ALTER`, `INDEX`, `INSERT`, `UPDATE`, `DELETE`, and `SELECT` privileges on `yakult_db`
+
+<Tip>
+  If you are setting up a local development environment on Windows, **XAMPP** is the easiest option. It bundles Apache, MySQL 8, and phpMyAdmin into a single installer with a one-click start panel — no manual MySQL configuration needed. Download it at [apachefriends.org](https://www.apachefriends.org/).
+</Tip>
+
+## Setup
+
+<Steps>
+  <Step title="Install and start MySQL">
+    Choose the installation method that best fits your environment.
+
+    **Option A — XAMPP (Windows, zero-config):**
+    1. Download and install XAMPP from [apachefriends.org](https://www.apachefriends.org/).
+    2. Open the XAMPP Control Panel and click **Start** next to *MySQL*.
+    3. MySQL is now running on `127.0.0.1:3306` with user `root` and no password.
+
+    **Option B — Standalone MySQL Server:**
+    Follow the official installation guide at [dev.mysql.com/downloads/mysql](https://dev.mysql.com/downloads/mysql/) for your operating system, then start the service.
+  </Step>
+
+  <Step title="Create the database">
+    Connect to your MySQL server with a client of your choice (MySQL CLI, phpMyAdmin, MySQL Workbench, or DBeaver) and run:
+
+    ```sql
+    CREATE DATABASE IF NOT EXISTS yakult_db;
+    USE yakult_db;
+    ```
+
+    That is all that is required. The backend will create and maintain all tables automatically when it starts.
+  </Step>
+
+  <Step title="(Optional) Import the seed file">
+    A seed SQL file is included in the repository at `backend/database/yakult_db.sql`. It contains the full `CREATE TABLE` statements and a small set of sample `productos` records that are useful for development and testing.
+
+    ```bash
+    mysql -u root yakult_db < backend/database/yakult_db.sql
+    ```
+
+    If your MySQL user has a password, add the `-p` flag:
+
+    ```bash
+    mysql -u root -p yakult_db < backend/database/yakult_db.sql
+    ```
+
+    This step is optional — the auto-migration on server startup will create all tables even without running the seed file. Import it only if you want pre-populated sample product data.
+  </Step>
+
+  <Step title="Update the backend connection config">
+    Open `backend/db.js` and set the credentials to match your MySQL installation.
+
+    ```js
+    const mysql = require('mysql2/promise');
+
+    const pool = mysql.createPool({
+      host: '127.0.0.1',    // MySQL host — use 127.0.0.1, not 'localhost' (see note below)
+      port: 3306,            // MySQL port (default: 3306)
+      user: 'root',          // Your MySQL username
+      password: '',          // Your MySQL password
+      database: 'yakult_db', // Must match the database you created above
+      waitForConnections: true,
+      connectTimeout: 10000, // ms to wait before throwing a connection error
+    });
+
+    module.exports = pool;
+    ```
+
+    <Note>
+      On Windows, using `'localhost'` as the host can cause MySQL to attempt an IPv6 connection (`::1`) before falling back to IPv4, which sometimes results in an `ETIMEDOUT` error even when the server is running. Using `'127.0.0.1'` explicitly forces an IPv4 TCP connection and avoids this issue.
+    </Note>
+
+    <Warning>
+      The default configuration uses an **empty password** for the `root` user. This is acceptable for local-only development but must never be used in any internet-facing or shared environment. Set a strong MySQL root password — or create a dedicated application user with limited privileges — before deploying to staging or production.
+    </Warning>
+  </Step>
+
+  <Step title="Start the backend and verify auto-migration">
+    Start the backend server as described in the [Backend Setup guide](/deployment/backend-setup).
+
+    ```bash
+    cd backend && npm run dev
+    ```
+
+    On startup you will see the schema migration run before the server begins listening:
+
+    ```
+    Servidor corriendo en http://localhost:3000
+    ```
+
+    If there are any connection problems, the process will exit and print a descriptive error:
+
+    ```
+    No se pudo preparar la base de datos: Error: connect ECONNREFUSED 127.0.0.1:3306
+    ```
+
+    Double-check that MySQL is running and that the credentials in `db.js` are correct.
+  </Step>
+</Steps>
+
+## Auto-migration system
+
+The backend includes a schema management module at `backend/schema.js` that runs the `ensureSchema()` function on every startup. You do not need to run any manual migration commands — the server maintains its own database structure.
+
+`ensureSchema()` performs the following operations each time the server starts:
+
+- **Creates missing tables** — if a table does not exist, it is created with its full column and constraint definitions
+- **Adds missing columns** — if a table exists but is missing a column (e.g. after a code update), the column is added with `ALTER TABLE ... ADD COLUMN`
+- **Creates missing indexes** — any indexes defined in the schema that are absent from the live table are created
+- **Never destructive** — no existing tables, columns, rows, or indexes are ever dropped or modified; all operations are additive only
+
+Because every operation is idempotent, it is completely safe to restart the server as many times as needed.
+
+### Managed tables
+
+The following 7 tables are created and maintained by `ensureSchema()`:
+
+| Table | Description |
+|---|---|
+| `productos` | Yakult product catalogue (SKUs, names, prices) |
+| `clientes` | Customer / distributor client records |
+| `usuarios` | Application user accounts and roles |
+| `ordenes` | Sales order headers (client, date, status, totals) |
+| `orden_items` | Line items belonging to each order (product, qty, price) |
+| `notificaciones` | In-app notifications for users |
+| `reportes_ventas` | Persisted sales report snapshots |
+
+## Connection pool reference
+
+The `mysql2/promise` pool in `db.js` is shared across the entire application. Key configuration options:
+
+| Option | Value | Description |
+|---|---|---|
+| `host` | `127.0.0.1` | MySQL server address |
+| `port` | `3306` | MySQL server port |
+| `user` | `root` | MySQL username |
+| `password` | `` | MySQL password (empty by default) |
+| `database` | `yakult_db` | Target database name |
+| `waitForConnections` | `true` | Queue requests when all connections are busy, rather than throwing immediately |
+| `connectTimeout` | `10000` | Milliseconds to wait for a new connection before raising an error |

@@ -1,0 +1,190 @@
+---
+title: "In-App Notifications for Delivery Drivers"
+sidebarTitle: "Notifications"
+description: "Yakult App sends automatic in-app notifications to delivery drivers when orders are assigned or change status. Drivers manage their inbox from the Avisos tab."
+---
+
+The Yakult App notification system keeps delivery drivers informed in real time without requiring any manual configuration. Whenever an order is assigned to a driver or its status changes, the platform automatically creates and delivers a targeted notification visible only to that driver. Drivers access their full notification inbox through the **Avisos** tab in the mobile app, where they can review unread messages, mark items as read individually or all at once, and quickly navigate to the related order.
+
+## Notification Types
+
+Every notification carries a `tipo` field that describes why it was created. The mobile app uses this value to display the appropriate icon and to help drivers prioritize their inbox.
+
+<CardGroup cols={3}>
+  <Card title="asignacion 🚚" icon="truck">
+    Triggered when an order is **created with a driver already assigned**, or when a driver is **reassigned** to an existing order. Alerts the driver that a delivery is now their responsibility.
+  </Card>
+  <Card title="estado 🔄" icon="arrows-rotate">
+    Triggered when the **status of an order changes** and the change was made by someone *other than* the assigned driver. Keeps the driver up to date on order progress without generating noise from their own actions.
+  </Card>
+  <Card title="info 🔔" icon="bell">
+    General informational messages sent by the platform. Used for system-level updates and announcements not tied to a specific order action.
+  </Card>
+</CardGroup>
+
+<Note>
+  Notifications are only sent to the **assigned repartidor**. If the repartidor themselves updates the status of their own order, they do **not** receive a redundant `estado` notification — the system skips notification creation in that case to avoid inbox clutter.
+</Note>
+
+---
+
+## Notification Data Structure
+
+Each notification object contains the following fields.
+
+```json
+{
+  "id": 1,
+  "ordenId": 5,
+  "tipo": "asignacion",
+  "titulo": "Nueva orden asignada",
+  "mensaje": "Se te asignó la orden #5 de Tienda López.",
+  "leida": false,
+  "fecha": "15 Jan 10:23"
+}
+```
+
+### Field Reference
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `number` | Unique notification ID |
+| `ordenId` | `number` | ID of the related order. Use to deep-link into order detail. |
+| `tipo` | `string` | One of `asignacion`, `estado`, or `info` |
+| `titulo` | `string` | Short subject line displayed in the notification list |
+| `mensaje` | `string` | Full notification body with contextual details |
+| `leida` | `boolean` | `false` if unread, `true` once the driver has marked it read |
+| `fecha` | `string` | Human-readable timestamp formatted as `DD Mon HH:MM` |
+
+---
+
+## API Endpoints
+
+All notification endpoints use the `x-user-id` header to identify the requesting driver. This numeric ID is provided automatically by the mobile app on every request.
+
+### Fetch Notifications
+
+Returns the 50 most recent notifications for the authenticated driver, ordered by date descending.
+
+```bash
+GET /api/notificaciones
+```
+
+**Required header:** `x-user-id: <userId>`
+
+```bash
+curl https://your-api.com/api/notificaciones \
+  -H "x-user-id: 3"
+```
+
+**Response**
+
+```json
+[
+  {
+    "id": 1,
+    "ordenId": 5,
+    "tipo": "asignacion",
+    "titulo": "Nueva orden asignada",
+    "mensaje": "Se te asignó la orden #5 de Tienda López.",
+    "leida": false,
+    "fecha": "15 Jan 10:23"
+  },
+  {
+    "id": 2,
+    "ordenId": 5,
+    "tipo": "estado",
+    "titulo": "Estado de orden actualizado",
+    "mensaje": "La orden #5 cambió a estado 'En camino'.",
+    "leida": true,
+    "fecha": "15 Jan 11:05"
+  }
+]
+```
+
+<Tip>
+  The mobile app uses React Navigation's `useFocusEffect` hook to re-fetch notifications every time the driver navigates to the **Avisos** tab. This lightweight polling approach means drivers always see a fresh inbox without the overhead of a persistent WebSocket connection.
+</Tip>
+
+---
+
+### Mark One Notification as Read
+
+Update the `leida` flag to `true` for a single notification. Typically called when the driver taps a notification item in the list.
+
+```bash
+PUT /api/notificaciones/:id/leida
+```
+
+**Required header:** `x-user-id: <userId>`
+
+```bash
+curl -X PUT https://your-api.com/api/notificaciones/1/leida \
+  -H "x-user-id: 3"
+```
+
+**Response**
+
+```json
+{ "mensaje": "Notificación marcada como leída." }
+```
+
+---
+
+### Mark All Notifications as Read
+
+Bulk-update all of the driver's unread notifications to `leida: true` in a single request. Invoked by the **Mark all as read** button in the Avisos tab.
+
+```bash
+PUT /api/notificaciones/leer-todas
+```
+
+**Required header:** `x-user-id: <userId>`
+
+```bash
+curl -X PUT https://your-api.com/api/notificaciones/leer-todas \
+  -H "x-user-id: 3"
+```
+
+**Response**
+
+```json
+{ "mensaje": "Todas las notificaciones marcadas como leídas." }
+```
+
+---
+
+## Mobile App — Avisos Tab
+
+The Avisos tab is the driver's notification inbox inside the Yakult mobile app. It surfaces all relevant alerts in a single, easy-to-scan list.
+
+<Steps>
+  <Step title="Unread Count Badge">
+    A red badge on the Avisos tab icon shows the number of unread notifications. The count is derived from the `leida: false` entries returned by `GET /api/notificaciones` and refreshes every time the tab comes into focus.
+  </Step>
+  <Step title="Notification List">
+    Notifications are displayed in reverse-chronological order. Each row shows the type icon, `titulo`, `mensaje` preview, and `fecha`. Unread items appear visually distinct from read ones.
+  </Step>
+  <Step title="Type Icons">
+    The app renders a contextual icon based on the `tipo` field:
+    - 🚚 `asignacion` — a new or reassigned delivery
+    - 🔄 `estado` — an order status change
+    - 🔔 `info` — a general system message
+  </Step>
+  <Step title="Tap to Mark as Read">
+    Tapping any notification calls `PUT /api/notificaciones/:id/leida`, flips its `leida` flag to `true`, and navigates the driver to the related order detail screen using `ordenId`.
+  </Step>
+  <Step title="Mark All as Read">
+    A **Mark all as read** button at the top of the tab calls `PUT /api/notificaciones/leer-todas`, immediately clearing the unread badge and updating the visual state of every item in the list.
+  </Step>
+</Steps>
+
+---
+
+## Endpoint Summary
+
+| Method | Endpoint | Header | Description |
+|--------|----------|--------|-------------|
+| `GET` | `/api/notificaciones` | `x-user-id` | Fetch the 50 most recent notifications |
+| `PUT` | `/api/notificaciones/:id/leida` | `x-user-id` | Mark one notification as read |
+| `PUT` | `/api/notificaciones/leer-todas` | `x-user-id` | Mark all notifications as read |

@@ -1,0 +1,230 @@
+---
+title: "Yakult App Architecture and System Design"
+sidebarTitle: "Architecture"
+description: "How the React Native mobile client, Express REST API, and MySQL database connect and communicate in the Yakult App system."
+---
+
+Yakult App is a full-stack sales management platform built for Yakult distributors. It consists of three tightly connected layers: a React Native (Expo) mobile front-end that sales representatives carry in the field, an Express 5 REST API that enforces business logic and authentication, and a MySQL database that persists every product, client, order, and report. Each layer has a single, clearly defined responsibility, and they communicate exclusively through a JSON HTTP interface — meaning the mobile app never touches the database directly and the server never pushes data without a client request (except through the notification polling model).
+
+## System Layers
+
+<CardGroup cols={2}>
+  <Card title="Mobile App" icon="mobile" href="/concepts/architecture#mobile-app-react-native--expo">
+    React Native 0.74 + Expo 51. Handles UI, local state, token persistence, and all API calls through `services/db.ts`. Navigation is file-based via Expo Router.
+  </Card>
+  <Card title="REST API" icon="server" href="/concepts/architecture#rest-api-express-5">
+    Express 5 server on port 3000. Validates JWT tokens, runs business-logic checks, and queries MySQL. CORS is open to all origins for development flexibility.
+  </Card>
+  <Card title="MySQL Database" icon="database" href="/concepts/data-model">
+    `yakult_db` schema with seven tables. Schema is created and migrated automatically on every server start via `ensureSchema()` — no manual `ALTER TABLE` scripts needed.
+  </Card>
+  <Card title="Auth Layer" icon="lock" href="/concepts/roles-permissions">
+    JWT tokens signed with a server secret, valid for 30 days. Tokens are stored in `AsyncStorage` on the device and sent on every request as `Authorization: Bearer <token>`.
+  </Card>
+</CardGroup>
+
+## Request Flow
+
+Every action in the mobile app follows this path:
+
+<Steps>
+  <Step title="User interaction in a screen">
+    A screen inside `app/(tabs)/` calls a method on one of the service objects exported from `services/db.ts` (e.g., `OrdenesDB.agregar(order)`).
+  </Step>
+  <Step title="HTTP request with auth headers">
+    `services/db.ts` builds the request headers and calls the API base URL. Two auth headers are attached on every protected call:
+
+    ```ts
+    const headers = (): Record<string, string> => ({
+      'Content-Type': 'application/json',
+      ...(usuarioActual?.id ? { 'x-user-id': String(usuarioActual.id) } : {}),
+      ...(tokenActual ? { Authorization: `Bearer ${tokenActual}` } : {}),
+    });
+    ```
+
+    | Header | Purpose |
+    |---|---|
+    | `Authorization: Bearer <token>` | JWT identity proof, verified server-side via `verificarToken()` |
+    | `x-user-id` | Numeric user ID used to scope notification queries without decoding the JWT on every read |
+    | `Content-Disposition` | Exposed by the server for file-download responses (e.g., report exports) |
+  </Step>
+  <Step title="API route handler">
+    The Express router for the matched route (e.g., `POST /api/ordenes`) validates the token, applies business-logic checks, and runs the appropriate SQL query via the `db` pool.
+  </Step>
+  <Step title="Database query">
+    MySQL executes the query against `yakult_db` and returns rows. The route handler formats the result as JSON and responds to the client.
+  </Step>
+  <Step title="State update">
+    `services/db.ts` passes the response back to the calling screen. The screen updates its local `useState` variables, triggering a re-render. If the request returned a `401`, the global `onAuthError` handler fires, calling `logout()` from `AuthContext` and redirecting the user to `/auth`.
+  </Step>
+</Steps>
+
+## REST API — Express 5
+
+The server entry point is `backend/server.js`. It configures CORS, mounts all route modules, and calls `ensureSchema()` before the HTTP listener starts:
+
+```js
+const express = require('express');
+const cors    = require('cors');
+const { ensureSchema } = require('./schema');
+const app = express();
+
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-github-token', 'x-user-id'],
+  exposedHeaders: ['Content-Disposition'],
+}));
+app.use(express.json());
+
+app.use('/api/productos',      require('./routes/productos'));
+app.use('/api/clientes',       require('./routes/clientes'));
+app.use('/api/ordenes',        require('./routes/ordenes'));
+app.use('/api/notificaciones', require('./routes/notificaciones'));
+app.use('/api/reportes',       require('./routes/reportes'));
+app.use('/api/auth',           require('./routes/auth'));
+
+const PORT = 3000;
+ensureSchema()
+  .then(() => app.listen(PORT, () => console.log(`Server running on port ${PORT}`)))
+  .catch((err) => { console.error('Schema init failed:', err); process.exit(1); });
+```
+
+<Note>
+  CORS is configured with `origin: '*'` to allow development from any host (Expo Go, simulators, dev tunnels). In a production deployment this should be narrowed to the specific app origin.
+</Note>
+
+### Mounted Routes
+
+| Prefix | Module | Responsibility |
+|---|---|---|
+| `/api/auth` | `routes/auth.js` | Registration, login, user management |
+| `/api/productos` | `routes/productos.js` | Product CRUD and stock |
+| `/api/clientes` | `routes/clientes.js` | Client CRUD and activation toggle |
+| `/api/ordenes` | `routes/ordenes.js` | Order lifecycle, repartidor assignment, status changes |
+| `/api/notificaciones` | `routes/notificaciones.js` | Per-user notification list, mark-as-read |
+| `/api/reportes` | `routes/reportes.js` | Saved report generation and retrieval |
+
+## Auto-Migration System
+
+`backend/schema.js` exports a single function, `ensureSchema()`, that is called once during server startup. It uses `CREATE TABLE IF NOT EXISTS` for every table and a helper, `addColumnIfMissing()`, to ALTER existing tables when new columns are introduced. An `indexExists()` helper gates every `CREATE INDEX` call as well. The result is fully **idempotent** — the same code runs safely on a brand-new database and on a database that has been running in production for months.
+
+```js
+ensureSchema()
+  .then(() => app.listen(PORT, ...))
+  .catch((err) => { console.error('Schema init failed:', err); process.exit(1); });
+```
+
+If `ensureSchema()` rejects (e.g., the database is unreachable), the process exits with code 1 rather than starting in a broken state.
+
+## Mobile App — React Native / Expo
+
+The mobile app lives in `yakult-app/` and follows a three-tier layer structure:
+
+| Layer | Files | Role |
+|---|---|---|
+| **Screens** | `app/(tabs)/*.tsx`, `app/auth.tsx` | UI, user interaction, local loading state |
+| **Services** | `services/db.ts` | All `fetch` calls to the API, header assembly, 401 handling |
+| **Context** | `context/AuthContext.tsx`, `context/ToastContext.tsx` | Global auth state, toast notifications |
+
+### Root Layout
+
+`app/_layout.tsx` wraps the entire navigation tree with both context providers so every screen has access to the authenticated user and the toast system:
+
+```tsx
+import { Stack } from 'expo-router';
+import { AuthProvider }  from '../context/AuthContext';
+import { ToastProvider } from '../context/ToastContext';
+
+export default function RootLayout() {
+  return (
+    <ToastProvider>
+      <AuthProvider>
+        <Stack screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="(tabs)" />
+          <Stack.Screen name="auth"   />
+        </Stack>
+      </AuthProvider>
+    </ToastProvider>
+  );
+}
+```
+
+### Tab Navigation
+
+The `(tabs)` group contains the main app screens. The tab bar shows five entries; `perfil`, `admin`, and `ventas` are accessible via `router.push()` but hidden from the bar:
+
+| Screen | Route | Access |
+|---|---|---|
+| Dashboard | `/(tabs)/` | All roles |
+| Productos | `/(tabs)/productos` | Master, Promotor |
+| Clientes | `/(tabs)/clientes` | Master, Promotor |
+| Órdenes | `/(tabs)/ordenes` | All roles |
+| Reportes | `/(tabs)/reportes` | Master, Promotor |
+| Ventas | `/(tabs)/ventas` | Master |
+| Admin | `/(tabs)/admin` | Master only (redirects others) |
+| Perfil | `/(tabs)/perfil` | All roles |
+
+### Token Persistence
+
+`AuthContext` stores the JWT and the serialized user object in `AsyncStorage` under the keys `yakult_token` and `yakult_usuario`. On app boot, it reads both keys and rehydrates the session:
+
+```tsx
+useEffect(() => {
+  Promise.all([
+    AsyncStorage.getItem('yakult_usuario'),
+    AsyncStorage.getItem('yakult_token'),
+  ]).then(async ([data, token]) => {
+    if (data && token) {
+      const guardado: Usuario = JSON.parse(data);
+      setUsuario(guardado);
+      setAuthUsuario(guardado, token);
+    } else if (data && !token) {
+      await AsyncStorage.removeItem('yakult_usuario');
+    }
+  }).finally(() => setCargando(false));
+}, []);
+```
+
+Tokens expire after **30 days**. Any `401` response from the API automatically triggers `logout()`, clears `AsyncStorage`, and redirects the user to the login screen.
+
+## Repository Structure
+
+```bash
+Yakultt-App/
+├── backend/                    # Express 5 API server
+│   ├── server.js               # Entry point — CORS, routes, ensureSchema()
+│   ├── schema.js               # Auto-migration: ensureSchema()
+│   ├── authToken.js            # JWT sign (crearToken) and verify (verificarToken)
+│   ├── db.js                   # mysql2 connection pool
+│   ├── database/
+│   │   └── yakult_db.sql       # Reference SQL dump
+│   └── routes/
+│       ├── auth.js             # /api/auth — register, login, user management
+│       ├── productos.js        # /api/productos
+│       ├── clientes.js         # /api/clientes
+│       ├── ordenes.js          # /api/ordenes
+│       ├── notificaciones.js   # /api/notificaciones
+│       └── reportes.js         # /api/reportes
+│
+└── yakult-app/                 # React Native / Expo mobile app
+    ├── app/
+    │   ├── _layout.tsx         # Root layout — ToastProvider + AuthProvider + Stack
+    │   ├── auth.tsx            # Login / registration screen
+    │   └── (tabs)/
+    │       ├── _layout.tsx     # Tab bar configuration
+    │       ├── index.tsx       # Dashboard
+    │       ├── productos.tsx   # Product management
+    │       ├── clientes.tsx    # Client management
+    │       ├── ordenes.tsx     # Order management
+    │       ├── reportes.tsx    # Saved reports
+    │       ├── ventas.tsx      # Sales screen (Master)
+    │       ├── admin.tsx       # User admin (Master only)
+    │       └── perfil.tsx      # User profile
+    ├── context/
+    │   ├── AuthContext.tsx     # Auth state, login/logout, token persistence
+    │   └── ToastContext.tsx    # Global toast notifications
+    └── services/
+        ├── db.ts               # All API calls (ProductosDB, ClientesDB, …)
+        └── reportes.ts         # Report-specific API helpers
+```

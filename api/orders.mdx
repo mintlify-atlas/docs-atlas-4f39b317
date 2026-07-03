@@ -1,0 +1,236 @@
+---
+title: "Orders API — Create and Manage Sales Orders"
+sidebarTitle: "Orders"
+description: "REST endpoints for creating orders, assigning delivery drivers, updating order status, and cancelling orders. Stock is deducted transactionally on creation."
+---
+
+The Orders API is the operational core of Yakult App. Creating an order automatically deducts the sold quantities from each product's stock and, when a delivery driver (`repartidor`) is assigned at creation time, fires an in-app notification to alert them. Status transitions follow the lifecycle `Pendiente → En camino → Entregado`; any status change triggered by someone other than the assigned driver also sends a notification so drivers stay informed in real time.
+
+---
+
+### GET /api/ordenes
+
+Returns all orders with their line items, client details, and assigned personnel.
+
+**Example request**
+
+```bash
+curl http://localhost:3000/api/ordenes
+```
+
+**Example response**
+
+```json
+[
+  {
+    "id": 1,
+    "clienteNombre": "Tienda López",
+    "clienteTelefono": "6641234567",
+    "vendedorNombre": "Ana García",
+    "repartidorId": 3,
+    "repartidorNombre": "Luis Méndez",
+    "total": 750.00,
+    "estado": "Pendiente",
+    "fecha": "2025-01-15T10:23:00.000Z",
+    "items": [
+      {
+        "nombre": "Yakult Original 65ml",
+        "cantidad": 30,
+        "precio": 15.00
+      }
+    ]
+  }
+]
+```
+
+<ResponseField name="id" type="number">Unique numeric order ID.</ResponseField>
+<ResponseField name="clienteNombre" type="string">Name of the client who placed the order.</ResponseField>
+<ResponseField name="clienteTelefono" type="string">Phone number of the client.</ResponseField>
+<ResponseField name="vendedorNombre" type="string">Name of the sales promotor who created the order.</ResponseField>
+<ResponseField name="repartidorId" type="number">Numeric ID of the assigned delivery driver, or `null` if unassigned.</ResponseField>
+<ResponseField name="repartidorNombre" type="string">Name of the assigned delivery driver, or `null` if unassigned.</ResponseField>
+<ResponseField name="total" type="number">Sum of all line item subtotals.</ResponseField>
+<ResponseField name="estado" type="string">Current status: `Pendiente`, `En camino`, or `Entregado`.</ResponseField>
+<ResponseField name="fecha" type="string">ISO 8601 timestamp of when the order was placed.</ResponseField>
+<ResponseField name="items" type="array">
+  Line items included in the order.
+
+  <Expandable title="items fields">
+    <ResponseField name="nombre" type="string">Product name.</ResponseField>
+    <ResponseField name="cantidad" type="number">Units ordered.</ResponseField>
+    <ResponseField name="precio" type="number">Unit price at time of sale.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+### POST /api/ordenes
+
+Creates a new order, deducts stock for every line item, and optionally notifies the assigned delivery driver.
+
+<Note>
+  Stock deduction is performed as part of order creation. If any product has insufficient stock, the request may still succeed — validate stock levels via `GET /api/productos` before submitting.
+</Note>
+
+<ParamField body="clienteId" type="number" required>
+  ID of the client receiving the order.
+</ParamField>
+
+<ParamField body="vendedorId" type="number">
+  ID of the promotor creating the order. Pass `null` to leave unassigned.
+</ParamField>
+
+<ParamField body="repartidorId" type="number">
+  ID of the delivery driver responsible for fulfillment. Pass `null` to leave unassigned. If provided, an in-app notification is sent to this user immediately.
+</ParamField>
+
+<ParamField body="items" type="array" required>
+  Array of line items. Must contain at least one entry.
+
+  <Expandable title="items fields">
+    <ParamField body="productoId" type="number" required>ID of the product.</ParamField>
+    <ParamField body="cantidad" type="number" required>Units to sell. Deducted from product stock.</ParamField>
+    <ParamField body="precio" type="number" required>Unit price captured at the time of the sale.</ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField body="total" type="number" required>
+  Pre-calculated grand total for the order. Should equal the sum of `(cantidad × precio)` across all items.
+</ParamField>
+
+**Example request**
+
+```bash
+curl -X POST http://localhost:3000/api/ordenes \
+  -H "Content-Type: application/json" \
+  -d '{
+    "clienteId": 1,
+    "vendedorId": 2,
+    "repartidorId": 3,
+    "items": [
+      { "productoId": 1, "cantidad": 30, "precio": 15.00 }
+    ],
+    "total": 450.00
+  }'
+```
+
+**Example response**
+
+```json
+{ "id": 1 }
+```
+
+<ResponseField name="id" type="number">Auto-generated ID of the newly created order.</ResponseField>
+
+**Errors**
+
+| Status | Reason |
+|--------|--------|
+| `400` | `clienteId`, `items`, or `total` is missing. |
+| `400` | `items` array is empty. |
+| `404` | One or more referenced IDs (`clienteId`, `vendedorId`, `repartidorId`, or a `productoId`) do not exist. |
+
+---
+
+### PUT /api/ordenes/:id/estado
+
+Updates the status of an existing order. If the change is triggered by someone other than the assigned delivery driver, the driver receives an in-app notification.
+
+<ParamField path="id" type="number" required>
+  Numeric ID of the order to update.
+</ParamField>
+
+<ParamField body="estado" type="string" required>
+  New status for the order. Must be one of `Pendiente`, `En camino`, or `Entregado`.
+</ParamField>
+
+Pass the caller's user ID in the `x-user-id` header so the API can determine whether to notify the repartidor.
+
+**Example request**
+
+```bash
+curl -X PUT http://localhost:3000/api/ordenes/1/estado \
+  -H "Content-Type: application/json" \
+  -H "x-user-id: 2" \
+  -d '{ "estado": "En camino" }'
+```
+
+**Example response**
+
+```json
+{ "ok": true }
+```
+
+**Errors**
+
+| Status | Reason |
+|--------|--------|
+| `400` | `estado` is missing or not one of the three valid values. |
+| `404` | No order found with the given ID. |
+
+---
+
+### PUT /api/ordenes/:id/repartidor
+
+Assigns or unassigns a delivery driver for an existing order. When a new driver is assigned, they receive an in-app notification.
+
+<ParamField path="id" type="number" required>
+  Numeric ID of the order to update.
+</ParamField>
+
+<ParamField body="repartidorId" type="number" required>
+  ID of the delivery driver to assign, or `null` to remove the current assignment.
+</ParamField>
+
+**Example request**
+
+```bash
+curl -X PUT http://localhost:3000/api/ordenes/1/repartidor \
+  -H "Content-Type: application/json" \
+  -d '{ "repartidorId": 4 }'
+```
+
+**Example response**
+
+```json
+{ "ok": true }
+```
+
+**Errors**
+
+| Status | Reason |
+|--------|--------|
+| `400` | `repartidorId` key is not present in the body. |
+| `404` | No order found with the given ID, or the specified driver ID does not exist. |
+
+---
+
+### DELETE /api/ordenes/:id
+
+Permanently deletes an order and all of its line items in a single transaction.
+
+<Note>
+  Deleting an order does **not** restore the stock that was deducted when the order was created. Adjust inventory manually via `PUT /api/productos/:id` if needed.
+</Note>
+
+<ParamField path="id" type="number" required>
+  Numeric ID of the order to delete.
+</ParamField>
+
+**Example request**
+
+```bash
+curl -X DELETE http://localhost:3000/api/ordenes/1
+```
+
+**Example response**
+
+```json
+{ "ok": true }
+```
+
+**Errors**
+
+| Status | Reason |
+|--------|--------|
+| `404` | No order found with the given ID. |

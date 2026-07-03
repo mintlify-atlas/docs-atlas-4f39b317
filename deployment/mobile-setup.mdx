@@ -1,0 +1,113 @@
+---
+title: "Build and Run the Yakult App Mobile Client"
+sidebarTitle: "Mobile Setup"
+description: "Set up the Yakult App React Native client with Expo — install dependencies, configure the backend API URL, and run on Android, iOS, or web."
+---
+
+The Yakult App mobile client is a React Native application built with Expo and powered by Expo Router for file-based tab navigation. It communicates exclusively with the Express.js backend over HTTP, so the backend server must be running and reachable from your device or emulator before you launch the app. The steps below cover everything from installing dependencies to picking your run target.
+
+## Prerequisites
+
+- **Node.js 18+** — [nodejs.org](https://nodejs.org)
+- **Expo CLI** — install globally with `npm install -g expo-cli`
+- **Android Studio** (for Android emulator) or **Xcode** (for iOS simulator) if you plan to run native builds
+- **Expo Go** app installed on a physical device for quick QR-code testing ([Android](https://play.google.com/store/apps/details?id=host.exp.exponent) / [iOS](https://apps.apple.com/app/expo-go/id982107779))
+- The **backend server** running and reachable — see [Backend Setup](/deployment/backend-setup)
+
+## Setup
+
+<Steps>
+  <Step title="Install mobile dependencies">
+    Navigate into the `yakult-app` directory and install all JavaScript packages.
+
+    ```bash
+    cd yakult-app && npm install
+    ```
+  </Step>
+
+  <Step title="Configure the backend API URL">
+    Open `yakult-app/services/db.ts` and update the `BASE` constant at the top of the file to point to your running backend server.
+
+    ```ts
+    // Android emulator — emulator maps 10.0.2.2 → host machine's localhost
+    const BASE = 'http://10.0.2.2:3000/api';
+
+    // iOS simulator — simulator shares the host machine's network stack
+    // const BASE = 'http://localhost:3000/api';
+
+    // Physical device — use your machine's LAN IP address
+    // const BASE = 'http://192.168.1.X:3000/api';
+    ```
+
+    Choose the line that matches your target and comment out the others.
+
+    | Target | `BASE` value |
+    |---|---|
+    | Android emulator | `http://10.0.2.2:3000/api` |
+    | iOS simulator | `http://localhost:3000/api` |
+    | Physical device (Android or iOS) | `http://<your-LAN-IP>:3000/api` |
+
+    To find your LAN IP address:
+    - **Windows:** run `ipconfig` in Command Prompt — look for *IPv4 Address* under your active adapter
+    - **macOS / Linux:** run `ifconfig` in Terminal — look for `inet` under `en0` or your active interface
+
+    <Note>
+      The mobile app and your backend server must be on the **same local network** when using a physical device. If the app cannot reach the API it will time out silently on login or data-fetch screens.
+    </Note>
+  </Step>
+
+  <Step title="Start the Expo development server">
+    Launch the Expo Metro bundler from the `yakult-app` directory.
+
+    ```bash
+    npx expo start
+    ```
+
+    The terminal will display a QR code and a menu of keyboard shortcuts for selecting your run target.
+
+    <Tip>
+      Install **Expo Go** on your physical Android or iOS device and scan the QR code shown in the terminal. This gives you instant hot-reload without needing to install Android Studio or Xcode, and is the fastest way to test on real hardware.
+    </Tip>
+  </Step>
+
+  <Step title="Choose a run target">
+    After `npx expo start` is running, press one of the following keys in the terminal to open the app on your chosen target:
+
+    | Key | Action |
+    |---|---|
+    | `a` | Open on Android emulator (requires Android Studio) |
+    | `i` | Open on iOS simulator (requires Xcode, macOS only) |
+    | `w` | Open in a web browser |
+    | Scan QR | Open in Expo Go on a physical device |
+
+    For a full native build (no Expo Go required), use the dedicated run commands instead:
+
+    <CodeGroup>
+      ```bash Expo Dev Server (interactive)
+      npx expo start
+      ```
+
+      ```bash Native Android Build
+      npx expo run:android
+      ```
+
+      ```bash Native iOS Build
+      npx expo run:ios
+      ```
+    </CodeGroup>
+  </Step>
+</Steps>
+
+## App structure
+
+The mobile app is organized into a tab-based navigation layout powered by Expo Router. The available screens are:
+
+| Tab | Description |
+|---|---|
+| **Dashboard** | Summary of today's sales activity and key metrics |
+| **Productos** | Product catalogue — view and manage Yakult product lines |
+| **Clientes** | Client directory — manage distributor customers |
+| **Órdenes** | Create and track sales orders |
+| **Reportes** | Sales reports and export tools |
+| **Admin** | Master-level administration panel (visible to admin users only) |
+| **Perfil** | User profile and session management |

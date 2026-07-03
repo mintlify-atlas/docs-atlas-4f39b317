@@ -1,0 +1,363 @@
+---
+title: "Yakult App Database Schema and Data Model"
+sidebarTitle: "Data Model"
+description: "The Yakult App MySQL schema covers productos, clientes, usuarios, ordenes, orden_items, notificaciones, and reportes_ventas — with auto-migration on startup."
+---
+
+The Yakult App database (`yakult_db`) is a normalized MySQL schema of seven tables that together model the full lifecycle of a Yakult distribution operation — from product catalog and client registry, through order creation and delivery, to saved sales reports. The schema is never manually migrated; instead, `backend/schema.js` exports an `ensureSchema()` function that runs on every server start. It creates any missing tables, adds any missing columns to existing tables, and creates any missing indexes — all idempotently, so it is safe to run on a brand-new database or one that has been in production for months without risk of data loss.
+
+<Tip>
+  `ensureSchema()` uses `CREATE TABLE IF NOT EXISTS`, `ADD COLUMN` only after checking `information_schema.COLUMNS`, and `CREATE INDEX` only after checking `information_schema.STATISTICS`. It never drops tables, columns, or rows. You can restart the server at any time without worrying about destructive migrations.
+
+  ```js
+  // The server will not listen until the schema is confirmed ready
+  ensureSchema()
+    .then(() => app.listen(PORT, ...))
+    .catch((err) => { console.error('Schema init failed:', err); process.exit(1); });
+  ```
+</Tip>
+
+## Entity Relationships
+
+```
+clientes ──────────────────┐
+                           │ cliente_id (FK)
+productos ─────────────────┼──► ordenes ◄── vendedor_id  ──► usuarios
+          │                │              └── repartidor_id ──► usuarios
+          │ producto_id    └── orden_items ◄── orden_id
+          └───────────────────► orden_items
+                                
+usuarios ──────────────────► notificaciones ◄── orden_id (nullable) ── ordenes
+usuarios ──────────────────► reportes_ventas
+```
+
+| Relationship | Type | Notes |
+|---|---|---|
+| `ordenes.cliente_id` → `clientes.id` | Many-to-one | A client can have many orders; enforced by FK |
+| `ordenes.vendedor_id` → `usuarios.id` | Many-to-one (nullable) | The Promotor who created the order |
+| `ordenes.repartidor_id` → `usuarios.id` | Many-to-one (nullable) | The Repartidor assigned to deliver the order |
+| `orden_items.orden_id` → `ordenes.id` | Many-to-one | Line items belonging to an order |
+| `orden_items.producto_id` → `productos.id` | Many-to-one | Product referenced in a line item |
+| `notificaciones.usuario_id` → `usuarios.id` | Many-to-one | Notifications are scoped to one user |
+| `notificaciones.orden_id` → `ordenes.id` | Many-to-one (nullable) | Notification may reference an order |
+| `reportes_ventas.usuario_id` → `usuarios.id` | Many-to-one | Report belongs to the user who generated it |
+
+---
+
+## Table Reference
+
+### `productos`
+
+Stores the product catalog. Every item that can appear in an order must first exist here.
+
+| Column | Type | Description |
+|---|---|---|
+| `id` | `INT AUTO_INCREMENT` | Primary key |
+| `nombre` | `VARCHAR(100) NOT NULL` | Display name of the product |
+| `sku` | `VARCHAR(50) NOT NULL UNIQUE` | Stock-keeping unit — must be unique across all products |
+| `precio` | `DECIMAL(10,2) NOT NULL` | Unit sale price |
+| `stock` | `INT NOT NULL DEFAULT 0` | Current units in inventory |
+| `categoria` | `VARCHAR(80) NOT NULL DEFAULT 'General'` | Product category; used as a report filter |
+| `creado_en` | `TIMESTAMP DEFAULT CURRENT_TIMESTAMP` | Record creation timestamp |
+
+```sql
+CREATE TABLE IF NOT EXISTS productos (
+  id        INT AUTO_INCREMENT PRIMARY KEY,
+  nombre    VARCHAR(100)  NOT NULL,
+  sku       VARCHAR(50)   NOT NULL UNIQUE,
+  precio    DECIMAL(10,2) NOT NULL,
+  stock     INT           NOT NULL DEFAULT 0,
+  categoria VARCHAR(80)   NOT NULL DEFAULT 'General',
+  creado_en TIMESTAMP     DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+**Constraints:** `sku` is `UNIQUE` — duplicate SKUs are rejected at the database level.  
+**Index:** `idx_productos_categoria (categoria)` — speeds up category-filtered report queries.
+
+---
+
+### `clientes`
+
+Stores the client (customer) registry. Clients are referenced by orders.
+
+| Column | Type | Description |
+|---|---|---|
+| `id` | `INT AUTO_INCREMENT` | Primary key |
+| `nombre` | `VARCHAR(100) NOT NULL` | Client full name or business name |
+| `telefono` | `VARCHAR(20)` | Contact phone number (optional) |
+| `direccion` | `VARCHAR(200)` | Delivery address (optional) |
+| `activo` | `TINYINT(1) NOT NULL DEFAULT 1` | Soft-delete flag; `0` = inactive |
+| `creado_en` | `TIMESTAMP DEFAULT CURRENT_TIMESTAMP` | Record creation timestamp |
+
+```sql
+CREATE TABLE IF NOT EXISTS clientes (
+  id        INT AUTO_INCREMENT PRIMARY KEY,
+  nombre    VARCHAR(100) NOT NULL,
+  telefono  VARCHAR(20),
+  direccion VARCHAR(200),
+  activo    TINYINT(1) NOT NULL DEFAULT 1,
+  creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+**Constraints:** None beyond the PK. Deactivating a client (`activo = 0`) hides them from the client picker in the order form without deleting their historical order records.
+
+---
+
+### `usuarios`
+
+Stores every registered user. Passwords are stored as `bcryptjs` hashes (cost factor 10).
+
+| Column | Type | Description |
+|---|---|---|
+| `id` | `INT AUTO_INCREMENT` | Primary key |
+| `nombre` | `VARCHAR(100) NOT NULL` | Full display name |
+| `correo` | `VARCHAR(120) NOT NULL UNIQUE` | Email address — used as login identifier |
+| `contrasena` | `VARCHAR(255) NOT NULL` | bcrypt hash of the password |
+| `rol` | `ENUM('Master','Promotor','Repartidor') NOT NULL DEFAULT 'Promotor'` | Access role |
+| `activo` | `TINYINT(1) NOT NULL DEFAULT 1` | Account enabled/disabled flag |
+| `creado_en` | `TIMESTAMP DEFAULT CURRENT_TIMESTAMP` | Registration timestamp |
+
+```sql
+CREATE TABLE IF NOT EXISTS usuarios (
+  id         INT AUTO_INCREMENT PRIMARY KEY,
+  nombre     VARCHAR(100) NOT NULL,
+  correo     VARCHAR(120) NOT NULL UNIQUE,
+  contrasena VARCHAR(255) NOT NULL,
+  rol        ENUM('Master','Promotor','Repartidor') NOT NULL DEFAULT 'Promotor',
+  activo     TINYINT(1) NOT NULL DEFAULT 1,
+  creado_en  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+**Constraints:** `correo` is `UNIQUE` — registering with an already-used email returns a `400` error.  
+**ENUM values:** `'Master'` | `'Promotor'` | `'Repartidor'`
+
+---
+
+### `ordenes`
+
+The central transaction table. Each row represents one sales order from a client.
+
+| Column | Type | Description |
+|---|---|---|
+| `id` | `INT AUTO_INCREMENT` | Primary key |
+| `cliente_id` | `INT NOT NULL` | FK → `clientes.id` — the purchasing client |
+| `vendedor_id` | `INT NULL` | FK → `usuarios.id` — Promotor who created the order |
+| `repartidor_id` | `INT NULL` | FK → `usuarios.id` — Repartidor assigned to deliver |
+| `total` | `DECIMAL(10,2) NOT NULL` | Sum of all line-item totals |
+| `estado` | `ENUM('Pendiente','En camino','Entregado') DEFAULT 'Pendiente'` | Delivery lifecycle state |
+| `fecha` | `TIMESTAMP DEFAULT CURRENT_TIMESTAMP` | Order creation timestamp |
+
+```sql
+CREATE TABLE IF NOT EXISTS ordenes (
+  id            INT AUTO_INCREMENT PRIMARY KEY,
+  cliente_id    INT           NOT NULL,
+  vendedor_id   INT           NULL,
+  repartidor_id INT           NULL,
+  total         DECIMAL(10,2) NOT NULL,
+  estado        ENUM('Pendiente','En camino','Entregado') DEFAULT 'Pendiente',
+  fecha         TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (cliente_id) REFERENCES clientes(id)
+);
+```
+
+**ENUM values for `estado`:**
+
+| Value | Meaning |
+|---|---|
+| `Pendiente` | Order created, not yet dispatched |
+| `En camino` | Assigned to a repartidor, in transit |
+| `Entregado` | Delivered and confirmed |
+
+**Indexes** (all created via `createIndexIfMissing` in `ensureSchema`):
+
+| Index name | Columns | Purpose |
+|---|---|---|
+| `idx_ordenes_fecha` | `fecha` | Fast single-date and date-range scans |
+| `idx_ordenes_cliente_fecha` | `cliente_id, fecha` | Per-client order history with date filter |
+| `idx_ordenes_vendedor_fecha` | `vendedor_id, fecha` | Per-promotor sales queries used in reports |
+| `idx_ordenes_repartidor_fecha` | `repartidor_id, fecha` | Per-repartidor delivery history |
+
+---
+
+### `orden_items`
+
+Stores the individual line items (products + quantities) for each order. An order has one or more items.
+
+| Column | Type | Description |
+|---|---|---|
+| `id` | `INT AUTO_INCREMENT` | Primary key |
+| `orden_id` | `INT NOT NULL` | FK → `ordenes.id` — parent order |
+| `producto_id` | `INT NOT NULL` | FK → `productos.id` — product sold |
+| `cantidad` | `INT NOT NULL` | Quantity sold |
+| `precio_unit` | `DECIMAL(10,2) NOT NULL` | Unit price at time of sale (snapshot) |
+
+```sql
+CREATE TABLE IF NOT EXISTS orden_items (
+  id          INT AUTO_INCREMENT PRIMARY KEY,
+  orden_id    INT           NOT NULL,
+  producto_id INT           NOT NULL,
+  cantidad    INT           NOT NULL,
+  precio_unit DECIMAL(10,2) NOT NULL,
+  FOREIGN KEY (orden_id)    REFERENCES ordenes(id),
+  FOREIGN KEY (producto_id) REFERENCES productos(id)
+);
+```
+
+**Design note:** `precio_unit` captures the price at the moment of sale, not the current product price. This ensures historical orders remain accurate even after product prices change.
+
+**Indexes:**
+
+| Index name | Columns | Purpose |
+|---|---|---|
+| `idx_orden_items_orden_producto` | `orden_id, producto_id` | Fast join between ordenes and their items |
+| `idx_orden_items_producto` | `producto_id` | Lookup of all orders containing a given product |
+
+---
+
+### `notificaciones`
+
+Stores in-app notifications delivered to individual users, most commonly triggered when a repartidor is assigned to an order.
+
+| Column | Type | Description |
+|---|---|---|
+| `id` | `INT AUTO_INCREMENT` | Primary key |
+| `usuario_id` | `INT NOT NULL` | FK → `usuarios.id` — notification recipient |
+| `orden_id` | `INT NULL` | FK → `ordenes.id` — related order (optional) |
+| `tipo` | `VARCHAR(30) NOT NULL DEFAULT 'info'` | Notification category (e.g., `'info'`, `'alerta'`) |
+| `titulo` | `VARCHAR(120) NOT NULL` | Short notification headline |
+| `mensaje` | `VARCHAR(255) NOT NULL` | Full notification body text |
+| `leida` | `TINYINT(1) NOT NULL DEFAULT 0` | Read/unread flag; `1` = read |
+| `creado_en` | `TIMESTAMP DEFAULT CURRENT_TIMESTAMP` | Creation timestamp |
+
+```sql
+CREATE TABLE IF NOT EXISTS notificaciones (
+  id         INT AUTO_INCREMENT PRIMARY KEY,
+  usuario_id INT          NOT NULL,
+  orden_id   INT          NULL,
+  tipo       VARCHAR(30)  NOT NULL DEFAULT 'info',
+  titulo     VARCHAR(120) NOT NULL,
+  mensaje    VARCHAR(255) NOT NULL,
+  leida      TINYINT(1)   NOT NULL DEFAULT 0,
+  creado_en  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+**Index:** `idx_notif_usuario (usuario_id, leida, creado_en)` — the `GET /api/notificaciones` endpoint filters by `usuario_id` (sourced from the `x-user-id` request header) and optionally by unread status, then orders by `creado_en DESC`. This composite index covers all three operations in a single scan.
+
+---
+
+### `reportes_ventas`
+
+Stores saved sales report snapshots. When a user runs a report, both the filter parameters (`filtros_json`) and the computed results (`resultado_json`) are persisted so the report can be viewed again without re-querying.
+
+| Column | Type | Description |
+|---|---|---|
+| `id` | `INT AUTO_INCREMENT` | Primary key |
+| `usuario_id` | `INT NOT NULL` | FK → `usuarios.id` — user who generated the report |
+| `nombre` | `VARCHAR(140) NOT NULL` | Human-readable report name |
+| `fecha_inicio` | `DATE NOT NULL` | Report date range start |
+| `fecha_fin` | `DATE NOT NULL` | Report date range end |
+| `cliente_id` | `INT NULL` | Optional client filter applied |
+| `producto_id` | `INT NULL` | Optional product filter applied |
+| `categoria` | `VARCHAR(80) NULL` | Optional category filter applied |
+| `vendedor_id` | `INT NULL` | Optional vendedor filter applied |
+| `agrupacion` | `ENUM('dia','semana','mes','anio') NOT NULL DEFAULT 'dia'` | Time-grouping granularity |
+| `total_ventas` | `INT NOT NULL DEFAULT 0` | Total number of orders in the report |
+| `total_ingresos` | `DECIMAL(12,2) NOT NULL DEFAULT 0` | Total revenue across the report period |
+| `filtros_json` | `LONGTEXT NOT NULL` | JSON serialization of all applied filters |
+| `resultado_json` | `LONGTEXT NOT NULL` | JSON serialization of the computed result rows |
+| `creado_en` | `TIMESTAMP DEFAULT CURRENT_TIMESTAMP` | Report generation timestamp |
+
+```sql
+CREATE TABLE IF NOT EXISTS reportes_ventas (
+  id             INT AUTO_INCREMENT PRIMARY KEY,
+  usuario_id     INT NOT NULL,
+  nombre         VARCHAR(140) NOT NULL,
+  fecha_inicio   DATE NOT NULL,
+  fecha_fin      DATE NOT NULL,
+  cliente_id     INT NULL,
+  producto_id    INT NULL,
+  categoria      VARCHAR(80) NULL,
+  vendedor_id    INT NULL,
+  agrupacion     ENUM('dia','semana','mes','anio') NOT NULL DEFAULT 'dia',
+  total_ventas   INT NOT NULL DEFAULT 0,
+  total_ingresos DECIMAL(12,2) NOT NULL DEFAULT 0,
+  filtros_json   LONGTEXT NOT NULL,
+  resultado_json LONGTEXT NOT NULL,
+  creado_en      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+**ENUM values for `agrupacion`:** `'dia'` | `'semana'` | `'mes'` | `'anio'`
+
+**Index:** `idx_reportes_usuario_fecha (usuario_id, creado_en)` — scopes report listings to the requesting user and orders them by most recent.
+
+---
+
+## Index Summary
+
+<Accordion title="All indexes created by ensureSchema()">
+
+| Table | Index name | Columns | Query pattern it serves |
+|---|---|---|---|
+| `ordenes` | `idx_ordenes_fecha` | `fecha` | Date-range scans across all orders |
+| `ordenes` | `idx_ordenes_cliente_fecha` | `cliente_id, fecha` | Per-client order history |
+| `ordenes` | `idx_ordenes_vendedor_fecha` | `vendedor_id, fecha` | Per-promotor sales reports |
+| `ordenes` | `idx_ordenes_repartidor_fecha` | `repartidor_id, fecha` | Per-repartidor delivery history |
+| `notificaciones` | `idx_notif_usuario` | `usuario_id, leida, creado_en` | Per-user notification list, unread filter, sorted by date |
+| `orden_items` | `idx_orden_items_orden_producto` | `orden_id, producto_id` | Join between orders and line items |
+| `orden_items` | `idx_orden_items_producto` | `producto_id` | All orders containing a specific product |
+| `productos` | `idx_productos_categoria` | `categoria` | Category-filtered product queries and reports |
+| `reportes_ventas` | `idx_reportes_usuario_fecha` | `usuario_id, creado_en` | Per-user report list, sorted by creation date |
+
+All indexes are created by `createIndexIfMissing()`, which checks `information_schema.STATISTICS` before issuing `CREATE INDEX`, so re-running `ensureSchema()` never produces a duplicate-index error.
+
+</Accordion>
+
+## Auto-Migration Pattern
+
+`ensureSchema()` is structured as a single `async` function that runs once per server process. A module-level promise cache (`schemaReady`) ensures it is called only once even if multiple imports request it concurrently:
+
+```js
+let schemaReady = null;
+
+function ensureSchema() {
+  if (!schemaReady) schemaReady = ensureSchemaInternal();
+  return schemaReady;
+}
+
+async function ensureSchemaInternal() {
+  // 1. CREATE TABLE IF NOT EXISTS for every table
+  await db.query(`CREATE TABLE IF NOT EXISTS productos ( ... )`);
+  // ... (all 7 tables)
+
+  // 2. ADD missing columns to tables that may pre-date a column
+  if (await tableExists('usuarios')) {
+    await addColumnIfMissing('usuarios', 'rol',
+      "ENUM('Master','Promotor','Repartidor') NOT NULL DEFAULT 'Promotor'");
+    await addColumnIfMissing('usuarios', 'activo', 'TINYINT(1) NOT NULL DEFAULT 1');
+    // Force the ENUM to include Repartidor even on old tables
+    await db.query(
+      "ALTER TABLE usuarios MODIFY COLUMN rol " +
+      "ENUM('Master','Promotor','Repartidor') NOT NULL DEFAULT 'Promotor'"
+    );
+  }
+
+  // 3. CREATE indexes if missing
+  await createIndexIfMissing('ordenes', 'idx_ordenes_fecha', 'fecha');
+  // ... (all 9 indexes)
+}
+```
+
+The key helper functions used internally:
+
+| Helper | Checks | Action if missing |
+|---|---|---|
+| `tableExists(table)` | `information_schema.TABLES` | Returns boolean — used before `addColumnIfMissing` calls |
+| `columnExists(table, col)` | `information_schema.COLUMNS` | Returns boolean |
+| `addColumnIfMissing(table, col, def)` | Uses `columnExists` | Runs `ALTER TABLE … ADD COLUMN` |
+| `indexExists(table, name)` | `information_schema.STATISTICS` | Returns boolean |
+| `createIndexIfMissing(table, name, cols)` | Uses `indexExists` | Runs `CREATE INDEX` |

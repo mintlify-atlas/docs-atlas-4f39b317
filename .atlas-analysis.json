@@ -1,0 +1,139 @@
+{
+  "projectType": "saas",
+  "projectName": "Yakult App",
+  "projectDescription": "A full-stack sales management platform for Yakult distributors, featuring a React Native (Expo) mobile app and an Express/MySQL REST backend for managing products, clients, orders, delivery staff, and PDF sales reports.",
+  "theme": "luma",
+  "primaryColor": "#E63946",
+  "lightColor": "#FDECEE",
+  "darkColor": "#C62828",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Overview",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/architecture",
+              "concepts/roles-permissions",
+              "concepts/data-model"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Features",
+        "groups": [
+          {
+            "group": "Authentication",
+            "pages": [
+              "features/authentication",
+              "features/user-management"
+            ]
+          },
+          {
+            "group": "Sales Operations",
+            "pages": [
+              "features/products",
+              "features/clients",
+              "features/orders"
+            ]
+          },
+          {
+            "group": "Reports",
+            "pages": [
+              "features/reports",
+              "features/notifications"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Auth",
+            "pages": [
+              "api/auth"
+            ]
+          },
+          {
+            "group": "Resources",
+            "pages": [
+              "api/products",
+              "api/clients",
+              "api/orders",
+              "api/notifications",
+              "api/reports"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Deployment",
+        "groups": [
+          {
+            "group": "Setup",
+            "pages": [
+              "deployment/backend-setup",
+              "deployment/mobile-setup",
+              "deployment/database"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Role-based access control with Master, Promotor, and Repartidor roles",
+    "Full product catalog management with SKU, stock tracking, and categories",
+    "Client management with active/inactive status and search/filter",
+    "Order lifecycle management from Pending → In Transit → Delivered",
+    "Delivery driver assignment with in-app push notifications",
+    "WhatsApp integration for customer order status notifications",
+    "Filterable sales reports with date ranges, clients, products, vendors, and grouping (day/week/month/year)",
+    "PDF export and printable HTML report generation via PDFKit",
+    "Real-time dashboard with product, client, order, and stock summaries",
+    "JWT-based authentication with bcrypt password hashing (30-day tokens)",
+    "Auto-migration database schema on server startup",
+    "React Native (Expo) cross-platform mobile app with tab-based navigation"
+  ],
+  "publicApiSurface": [
+    "POST /api/auth/registro — Register a new user (role auto-assigned by email domain)",
+    "POST /api/auth/login — Authenticate and receive JWT",
+    "GET /api/auth/usuarios — List all users (Master only)",
+    "PUT /api/auth/usuarios/:id — Activate/deactivate a user",
+    "PUT /api/auth/usuarios/:id/rol — Change a user's role",
+    "DELETE /api/auth/usuarios/:id — Delete a user",
+    "GET /api/productos — List all products",
+    "POST /api/productos — Create a product",
+    "PUT /api/productos/:id — Update a product",
+    "DELETE /api/productos/:id — Delete a product",
+    "GET /api/clientes — List all clients",
+    "POST /api/clientes — Create a client",
+    "PUT /api/clientes/:id — Update a client",
+    "PUT /api/clientes/:id/activo — Toggle client active status",
+    "DELETE /api/clientes/:id — Delete a client",
+    "GET /api/ordenes — List all orders with line items",
+    "POST /api/ordenes — Create an order (transactional stock deduction)",
+    "PUT /api/ordenes/:id/estado — Change order status",
+    "PUT /api/ordenes/:id/repartidor — Assign/reassign delivery driver",
+    "DELETE /api/ordenes/:id — Cancel an order",
+    "GET /api/notificaciones — Get user notifications (x-user-id header)",
+    "PUT /api/notificaciones/:id/leida — Mark notification as read",
+    "PUT /api/notificaciones/leer-todas — Mark all notifications as read",
+    "GET /api/reportes/opciones — Filter options (clients, products, categories, vendors)",
+    "POST /api/reportes/ventas — Generate and save a sales report",
+    "GET /api/reportes/historial — Saved report history",
+    "GET /api/reportes/:id — Retrieve a stored report",
+    "GET /api/reportes/:id/export/pdf — Download report as PDF",
+    "GET /api/reportes/:id/imprimir — Open printable HTML report"
+  ]
+}

@@ -1,0 +1,169 @@
+---
+title: "User Roles and Permissions in Yakult App"
+sidebarTitle: "Roles & Permissions"
+description: "Yakult App has three roles — Master, Promotor, and Repartidor — each with distinct access levels for managing users, orders, and reports."
+---
+
+Yakult App enforces a three-tier role system that matches the real-world structure of a Yakult distribution operation. A **Master** is the administrator who oversees the whole platform — they can manage users, view every report, and perform any operation. A **Promotor** is a sales representative who creates orders on behalf of clients and manages the product and client catalogs. A **Repartidor** is a delivery driver whose interaction with the app is focused entirely on the orders assigned to them: they receive push-style in-app notifications when an order is assigned and can update an order's status to delivered. Role assignment happens automatically at registration based on the registrant's email domain, and any account can be suspended by a Master regardless of its role.
+
+## Role Capabilities
+
+| Capability | Master | Promotor | Repartidor |
+|---|:---:|:---:|:---:|
+| View dashboard | ✅ | ✅ | ✅ |
+| Manage products (add / edit / delete) | ✅ | ✅ | ❌ |
+| Manage clients (add / edit / deactivate) | ✅ | ✅ | ❌ |
+| Create orders (as `vendedor`) | ✅ | ✅ | ❌ |
+| View all orders | ✅ | ✅ | ❌ |
+| Assign repartidor to an order | ✅ | ✅ | ❌ |
+| Mark order as delivered | ✅ | ❌ | ✅ |
+| Receive order-assignment notifications | ✅ | ❌ | ✅ |
+| View own notifications | ✅ | ✅ | ✅ |
+| Generate and save sales reports | ✅ | ✅ | ❌ |
+| View all users' reports | ✅ | ❌ | ❌ |
+| List all users (`GET /api/auth/usuarios`) | ✅ | ❌ | ❌ |
+| Activate / deactivate user accounts | ✅ | ❌ | ❌ |
+| Change a user's role | ✅ | ❌ | ❌ |
+| Delete user accounts | ✅ | ❌ | ❌ |
+| Access Admin screen (`/(tabs)/admin`) | ✅ | ❌ | ❌ |
+
+## Role Definitions
+
+<CardGroup cols={2}>
+  <Card title="Master" icon="star" href="/concepts/roles-permissions#master">
+    Full administrative access. Manages users, views all reports across all promotors, and can perform every product, client, and order operation. Auto-assigned to `@upa.edu.mx` registrations.
+  </Card>
+  <Card title="Promotor" icon="user" href="/concepts/roles-permissions#promotor">
+    Standard sales representative. Creates orders as the `vendedor`, manages the product catalog and client list, and generates their own sales reports. Default role for all new registrations.
+  </Card>
+  <Card title="Repartidor" icon="truck" href="/concepts/roles-permissions#repartidor">
+    Delivery driver. Receives in-app notifications when assigned to an order. Can mark assigned orders as delivered. Has no access to product, client, or report management.
+  </Card>
+  <Card title="Inactive Account" icon="ban" href="/concepts/roles-permissions#the-activo-flag">
+    Any account can be suspended by a Master by setting `activo = 0`. A suspended user cannot log in regardless of their role, and is shown a clear error message.
+  </Card>
+</CardGroup>
+
+### Master
+
+The Master role is the platform administrator. Every user-management endpoint in `backend/routes/auth.js` is intended exclusively for Master users:
+
+```js
+// List all users
+router.get('/usuarios',        async (req, res) => { /* SELECT all usuarios */ });
+
+// Activate / deactivate a user
+router.put('/usuarios/:id',    async (req, res) => {
+  await db.query('UPDATE usuarios SET activo=? WHERE id=?', [req.body.activo, req.params.id]);
+  res.json({ ok: true });
+});
+
+// Change a user's role
+router.put('/usuarios/:id/rol', async (req, res) => {
+  const { rol } = req.body;
+  if (!['Master', 'Promotor', 'Repartidor'].includes(rol))
+    return res.status(400).json({ error: 'Rol inválido.' });
+  await db.query('UPDATE usuarios SET rol=? WHERE id=?', [rol, req.params.id]);
+  res.json({ ok: true });
+});
+
+// Delete a user
+router.delete('/usuarios/:id', async (req, res) => {
+  await db.query('DELETE FROM usuarios WHERE id=?', [req.params.id]);
+  res.json({ ok: true });
+});
+```
+
+### Promotor
+
+Promotors are the day-to-day users of the platform. When a Promotor creates an order, their `usuario.id` is recorded in the `vendedor_id` column of the `ordenes` table, linking every sale to the representative who made it. This linkage powers the per-vendedor filter in the reporting system.
+
+### Repartidor
+
+Repartidors are assigned to orders by a Master or Promotor via `PUT /api/ordenes/:id/repartidor`. The moment a repartidor is assigned, the backend creates a `notificaciones` record pointing to that user so they see an alert in-app. Repartidors can then change the order's `estado` to `'Entregado'` via `PUT /api/ordenes/:id/estado`.
+
+## Auto-Assignment Rule
+
+When a new user registers via `POST /api/auth/registro`, the backend checks the email domain before inserting the record:
+
+```js
+// backend/routes/auth.js
+const rol = correo.toLowerCase().endsWith('@upa.edu.mx') ? 'Master' : 'Promotor';
+
+const [r] = await db.query(
+  'INSERT INTO usuarios (nombre, correo, contrasena, rol) VALUES (?,?,?,?)',
+  [nombre.trim(), correo.toLowerCase().trim(), hash, rol]
+);
+```
+
+| Email pattern | Assigned role |
+|---|---|
+| `*@upa.edu.mx` | `Master` |
+| Any other domain | `Promotor` |
+
+<Note>
+  The `Repartidor` role cannot be self-assigned at registration. A Master must manually change the role to `Repartidor` from the Admin screen after the user has registered as a Promotor. This requirement exists because `Repartidor` was added to the `ENUM` in a later schema migration — existing databases have their `usuarios.rol` column automatically updated by `ensureSchema()` using `ALTER TABLE usuarios MODIFY COLUMN rol ENUM('Master','Promotor','Repartidor') NOT NULL DEFAULT 'Promotor'`.
+</Note>
+
+## Role Storage in the Database
+
+Roles are stored as a MySQL `ENUM` directly on the `usuarios` table:
+
+```sql
+rol ENUM('Master', 'Promotor', 'Repartidor') NOT NULL DEFAULT 'Promotor'
+```
+
+The `ENUM` constraint means the database itself rejects any invalid role string — the application-level validation in `PUT /api/auth/usuarios/:id/rol` is a redundant safety net.
+
+The full `usuarios` row that is returned in the JWT payload and kept in `AuthContext` looks like this:
+
+```json
+{
+  "id": 7,
+  "nombre": "Ana García",
+  "correo": "ana@example.com",
+  "rol": "Promotor"
+}
+```
+
+## Frontend Role Checks
+
+The mobile app enforces role restrictions in two ways:
+
+### 1. Screen-level redirect
+
+Screens that require Master access perform an immediate role check at the top of the component and return a `<Redirect>` if the check fails:
+
+```tsx
+// app/(tabs)/admin.tsx
+export default function AdminScreen() {
+  const { usuario } = useAuth();
+
+  // Redirect non-Masters before rendering any sensitive UI
+  if (usuario?.rol !== 'Master') return <Redirect href="/(tabs)" />;
+
+  // ... rest of the screen
+}
+```
+
+### 2. Tab bar visibility
+
+The `admin`, `ventas`, and `perfil` routes are hidden from the tab bar using `href: null` and are only reachable via `router.push()` — which screens conditionally invoke based on role.
+
+## The `activo` Flag
+
+Every `usuarios` row has an `activo TINYINT(1)` column (default `1`). During login, the server explicitly checks this flag before issuing a token:
+
+```js
+// backend/routes/auth.js — login handler
+if (!u.activo)
+  return res.status(403).json({
+    error: 'Tu cuenta está desactivada. Contacta al administrador.'
+  });
+```
+
+<Warning>
+  Deactivating an account does **not** invalidate tokens the user already holds. If a session is active when an account is deactivated, the user can continue making API requests until their token expires (up to 30 days). For immediate revocation, the account's password should also be changed by a Master.
+</Warning>
+
+A Master can toggle any account's `activo` state from the Admin screen by calling `AuthDB.editarUsuario(id, { activo: false })`, which maps to `PUT /api/auth/usuarios/:id`.

@@ -1,0 +1,142 @@
+---
+title: "Deploy the Yakult App Backend Server"
+sidebarTitle: "Backend Setup"
+description: "Set up the Yakult App Express server — install Node.js dependencies, configure MySQL connection, set environment variables, and start the API on port 3000."
+---
+
+The Yakult App backend is an Express.js REST API that connects to a MySQL database and exposes all endpoints consumed by the mobile client. It handles authentication via JWT, manages sales orders, products, clients, and generates reports. Before starting the mobile app, you must have this server running and reachable on your network.
+
+## Prerequisites
+
+- **Node.js 18+** — [nodejs.org](https://nodejs.org)
+- **MySQL 8** — via [XAMPP](https://www.apachefriends.org/), MySQL Workbench, or a standalone MySQL Server installation
+- **npm** (bundled with Node.js)
+
+## Setup
+
+<Steps>
+  <Step title="Clone the repository">
+    Clone the project and navigate into the root folder.
+
+    ```bash
+    git clone https://github.com/your-org/yakult-app.git
+    cd yakult-app
+    ```
+  </Step>
+
+  <Step title="Install backend dependencies">
+    Move into the `backend` directory and install all required Node.js packages.
+
+    ```bash
+    cd backend && npm install
+    ```
+  </Step>
+
+  <Step title="Configure the MySQL connection">
+    Open `backend/db.js` and update the connection pool options to match your local MySQL installation.
+
+    ```js
+    const mysql = require('mysql2/promise');
+
+    const pool = mysql.createPool({
+      host: '127.0.0.1',   // Change if MySQL is on a remote host
+      port: 3306,           // Default MySQL port
+      user: 'root',         // Your MySQL username
+      password: '',         // Your MySQL password
+      database: 'yakult_db',
+      waitForConnections: true,
+      connectTimeout: 10000,
+    });
+
+    module.exports = pool;
+    ```
+
+    Change `host`, `user`, `password`, and `database` to match your environment. See the [Database setup guide](/deployment/database) for full details on creating `yakult_db`.
+  </Step>
+
+  <Step title="Set the JWT secret">
+    The backend signs all authentication tokens using the `JWT_SECRET` environment variable. You can set it inline for a quick start or via a `.env` file for persistent configuration.
+
+    **Inline (terminal session only):**
+
+    ```bash
+    # macOS / Linux
+    export JWT_SECRET=your-strong-secret-here
+    npm start
+
+    # Windows (Command Prompt)
+    set JWT_SECRET=your-strong-secret-here
+    npm start
+
+    # Windows (PowerShell)
+    $env:JWT_SECRET="your-strong-secret-here"
+    npm start
+    ```
+
+    **Using a `.env` file (recommended):**
+
+    Create a file named `.env` inside the `backend/` directory:
+
+    ```bash
+    JWT_SECRET=your-strong-secret-here
+    ```
+
+    Then install `dotenv` and add `require('dotenv').config()` at the top of `server.js`, or use a package such as `dotenv-cli` to load it automatically.
+
+    ### Environment variables reference
+
+    | Variable | Default | Description |
+    |---|---|---|
+    | `JWT_SECRET` | `yakult-reportes-dev-secret` | Secret key used to sign and verify JWT tokens |
+
+    <Warning>
+      **Never use the default `JWT_SECRET` in production.** The default value `yakult-reportes-dev-secret` is public knowledge — any attacker could forge valid tokens. Always set a long, random secret before deploying to a production or staging environment.
+    </Warning>
+  </Step>
+
+  <Step title="Start the server">
+    Run the server in development mode (with auto-reload via `nodemon`) or in production mode.
+
+    <CodeGroup>
+      ```bash Development
+      npm run dev
+      ```
+
+      ```bash Production
+      npm start
+      ```
+    </CodeGroup>
+
+    A successful startup prints:
+
+    ```
+    Servidor corriendo en http://localhost:3000
+    ```
+
+    <Note>
+      On every startup, `ensureSchema()` runs automatically before the server begins accepting requests. It creates all 7 required database tables if they do not yet exist, adds any missing columns to existing tables, and creates missing indexes — all operations are fully idempotent and will never delete or overwrite your existing data. See the [Database guide](/deployment/database) for a full breakdown of what this migration does.
+    </Note>
+  </Step>
+
+  <Step title="Verify the server is running">
+    Send a quick health-check request to confirm the API is responding.
+
+    ```bash
+    curl http://localhost:3000/
+    ```
+
+    Expected response:
+
+    ```json
+    { "ok": true, "mensaje": "API Yakult funcionando ✅" }
+    ```
+
+    If the server started but MySQL is unreachable, the process will exit before accepting any connections and print an error to the console:
+
+    ```
+    No se pudo preparar la base de datos: Error: connect ECONNREFUSED 127.0.0.1:3306
+    ```
+
+    Ensure MySQL is running and that the credentials in `backend/db.js` are correct, then start the server again.
+  </Step>
+</Steps>

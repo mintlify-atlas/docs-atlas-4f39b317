@@ -1,0 +1,218 @@
+---
+title: "Create and Manage Yakult Distribution Orders"
+sidebarTitle: "Orders"
+description: "Orders track sales from creation through delivery — with transactional stock deduction, delivery driver assignment, status updates, and WhatsApp notifications."
+---
+
+Orders are the core transaction record in Yakult App. Each order connects a client to a set of purchased products, optionally assigns a delivery driver (repartidor), and moves through a three-stage lifecycle from the moment it is placed until it reaches the customer's door. Stock is deducted atomically at creation time, status changes trigger push notifications to the assigned driver, and every status transition can send a pre-composed WhatsApp message directly to the client — making the order system the main coordination point between your sales team, warehouse, and field drivers.
+
+## Order Lifecycle
+
+Orders follow a strict, one-way state machine. Status can only advance forward — it cannot be reversed.
+
+```
+Pendiente  ──►  En camino  ──►  Entregado
+```
+
+| Status | Meaning |
+|--------|---------|
+| `Pendiente` | Order has been created and is awaiting dispatch |
+| `En camino` | A driver has picked up the order and is en route |
+| `Entregado` | Order has been successfully delivered to the client |
+
+## Order Data Structure
+
+A full order object returned by the API looks like this:
+
+```json
+{
+  "id": 42,
+  "clienteNombre": "María González",
+  "clienteTelefono": "5512345678",
+  "vendedorNombre": "Carlos Ramírez",
+  "repartidorId": 3,
+  "repartidorNombre": "Luis Hernández",
+  "total": 97.50,
+  "estado": "Pendiente",
+  "fecha": "2024-11-15T16:30:00.000Z",
+  "items": [
+    { "nombre": "Yakult Original 80ml × 5", "cantidad": 2, "precio": 32.50 },
+    { "nombre": "Yakult Light 65ml × 5",   "cantidad": 1, "precio": 29.00 }
+  ]
+}
+```
+
+The `items` array is built by joining `orden_items` to `productos` and embedded directly in each order response, so you never need a second request to fetch line details.
+
+## API Endpoints
+
+The orders resource is mounted at `/api/ordenes`.
+
+<Tabs>
+  <Tab title="List Orders">
+    Retrieve all orders with their items, client details, and assigned personnel. Orders are returned with embedded `items` arrays.
+
+    ```bash
+    curl https://your-api.example.com/api/ordenes
+    ```
+
+    **Response** — array of full order objects (see structure above).
+  </Tab>
+  <Tab title="Create Order">
+    Create a new order. The backend opens a transaction, inserts the order header and all line items, then deducts stock for each product.
+
+    **Required fields:** `clienteId`, `items` (array), `total`
+    **Optional fields:** `vendedorId`, `repartidorId`
+
+    ```bash
+    curl -X POST https://your-api.example.com/api/ordenes \
+      -H "Content-Type: application/json" \
+      -d '{
+        "clienteId": 14,
+        "vendedorId": 2,
+        "repartidorId": 3,
+        "items": [
+          { "productoId": 7, "cantidad": 2, "precio": 32.50 },
+          { "productoId": 1, "cantidad": 1, "precio": 29.00 }
+        ],
+        "total": 97.50
+      }'
+    ```
+
+    **Response** — the ID of the newly created order:
+
+    ```json
+    { "id": 42 }
+    ```
+
+    If `repartidorId` is provided, a push notification is sent to the driver immediately after the transaction commits.
+  </Tab>
+  <Tab title="Change Status">
+    Advance an order to the next status stage. Valid values are `'Pendiente'`, `'En camino'`, and `'Entregado'`.
+
+    ```bash
+    curl -X PUT https://your-api.example.com/api/ordenes/42/estado \
+      -H "Content-Type: application/json" \
+      -d '{ "estado": "En camino" }'
+    ```
+
+    **Response:**
+
+    ```json
+    { "ok": true }
+    ```
+
+    The assigned `repartidor` receives a push notification when the status changes — unless the repartidor themselves initiated the change.
+  </Tab>
+  <Tab title="Assign Driver">
+    Assign or reassign the delivery driver for an existing order. Pass `null` to unassign.
+
+    ```bash
+    # Assign a driver
+    curl -X PUT https://your-api.example.com/api/ordenes/42/repartidor \
+      -H "Content-Type: application/json" \
+      -d '{ "repartidorId": 5 }'
+
+    # Unassign a driver
+    curl -X PUT https://your-api.example.com/api/ordenes/42/repartidor \
+      -H "Content-Type: application/json" \
+      -d '{ "repartidorId": null }'
+    ```
+
+    **Response:**
+
+    ```json
+    { "ok": true }
+    ```
+
+    A push notification is sent to the newly assigned driver automatically.
+  </Tab>
+  <Tab title="Delete Order">
+    Permanently cancel and delete an order. Both the order header and all `orden_items` rows are removed inside a transaction.
+
+    ```bash
+    curl -X DELETE https://your-api.example.com/api/ordenes/42
+    ```
+
+    **Response:**
+
+    ```json
+    { "ok": true }
+    ```
+  </Tab>
+</Tabs>
+
+## Transactional Order Creation
+
+Creating an order involves multiple coordinated writes. The backend wraps all of them in a single MySQL transaction so that a failure at any step leaves the database completely unchanged.
+
+<Steps>
+  <Step title="Client selects products">
+    In the **Nueva** tab, the sales rep picks a client, optionally assigns a repartidor, then uses quantity counters to add products to the order.
+  </Step>
+  <Step title="Order header inserted">
+    A row is written to `ordenes` with `clienteId`, `vendedorId`, `repartidorId`, `total`, and `estado = 'Pendiente'`.
+  </Step>
+  <Step title="Line items inserted">
+    Each item in the `items` array is written to `orden_items` with `productoId`, `cantidad`, and `precio`.
+  </Step>
+  <Step title="Stock deducted">
+    For every line item, the product's stock is decremented atomically:
+
+    ```sql
+    UPDATE productos SET stock = stock - ? WHERE id = ?
+    ```
+  </Step>
+  <Step title="Transaction committed">
+    All writes commit together. If anything fails (e.g., a DB constraint violation), the entire transaction rolls back — no partial order, no orphaned items, no phantom stock deduction.
+  </Step>
+  <Step title="Driver notified">
+    If a `repartidorId` was provided, a push notification is dispatched to the assigned driver after the commit.
+  </Step>
+</Steps>
+
+## Delivery Driver Assignment
+
+Any order can have a `repartidorId` assigned at creation time or updated later via `PUT /api/ordenes/:id/repartidor`. Reassignment works the same way — send the new driver's ID and they receive an immediate push notification. To remove a driver from an order without assigning a replacement, send `{ "repartidorId": null }`.
+
+## Status Change Notifications
+
+When a status change is applied via `PUT /api/ordenes/:id/estado`, the backend checks whether the requestor is the assigned repartidor. If it was someone else (e.g., a manager advancing the status from a dashboard), the repartidor is notified. This prevents drivers from receiving redundant notifications for changes they initiated themselves.
+
+## WhatsApp Notifications
+
+The mobile app generates a pre-composed WhatsApp message for each order status. Tapping the WhatsApp button opens the native app with the client's number and message ready to send — no copy-pasting required.
+
+Message templates by status:
+
+| Status | Message |
+|--------|---------|
+| `Pendiente` | Order confirmation listing all items and the total amount |
+| `En camino` | `Tu pedido #42 de Yakult ya va en camino 🚚` |
+| `Entregado` | `Tu pedido #42 fue entregado ✅\n¡Gracias por tu compra!` |
+
+Phone numbers are normalized to the Mexican `wa.me` format automatically:
+
+```ts
+const digits = String(telefono || '').replace(/\D/g, '');
+const num = digits.startsWith('52') ? digits : `52${digits}`;
+// → https://wa.me/525512345678?text=...
+```
+
+The country code `52` is prepended only if not already present, so numbers stored with or without the prefix both work correctly.
+
+## Cancelling an Order
+
+<Warning>
+  Deleting an order does **not** restore stock. The transactional deletion removes the order header and all `orden_items` rows, but the `UPDATE productos SET stock = stock - ?` that ran at creation time is **not** reversed. If you need to return units to inventory after a cancellation, update the product's stock manually via `PUT /api/productos/:id`.
+</Warning>
+
+## Mobile UI — Three-Tab Layout
+
+<Note>
+  The Orders screen in the mobile app is organized into three tabs, each serving a distinct role in the order workflow:
+
+  - **Historial** — A scrollable list of all orders showing status badge, line items, total, assigned repartidor, and action buttons for status advancement and WhatsApp messaging.
+  - **Nueva** — A guided flow for creating a new order: select client → optionally assign repartidor → choose products with quantity counters → confirm and submit.
+  - **Avisos** — The notification inbox. An unread-count badge appears on the tab icon whenever new notifications arrive (e.g., new order assignments, status changes).
+</Note>

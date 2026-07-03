@@ -1,0 +1,236 @@
+---
+title: "Manage Users and Roles in Yakult App"
+sidebarTitle: "User Management"
+description: "Master users can list, activate, deactivate, change roles, and delete accounts from the Admin panel or via the REST API."
+---
+
+User management in Yakult App is restricted exclusively to accounts with the **Master** role. Masters can view all registered users, activate or deactivate accounts, promote or demote users between the three available roles, and permanently delete accounts. These operations are accessible both from the in-app Admin screen and directly through the REST API.
+
+---
+
+## Roles overview
+
+Every user in Yakult App belongs to exactly one of three roles. The table below summarises what each role can do:
+
+| Role | Description | Can manage users | Can access admin panel |
+|---|---|---|---|
+| **Master** | Full administrator. Assigned automatically to `@upa.edu.mx` email addresses or promoted manually. | ✅ | ✅ |
+| **Promotor** | Sales promoter. Default role for non-institutional email addresses. | ❌ | ❌ |
+| **Repartidor** | Delivery driver. Assigned manually by a Master. | ❌ | ❌ |
+
+---
+
+## API endpoints
+
+All user management endpoints live under `/api/auth/` and require a valid **Master** JWT token in the `Authorization` header.
+
+### List all users
+
+Retrieves every registered account ordered by creation date (newest first).
+
+**`GET /api/auth/usuarios`**
+
+#### Example
+
+```bash
+curl https://your-api/api/auth/usuarios \
+  -H "Authorization: Bearer <master-token>"
+```
+
+#### Response `200 OK`
+
+```json
+[
+  {
+    "id": 1,
+    "nombre": "Ana García",
+    "correo": "ana@upa.edu.mx",
+    "rol": "Master",
+    "activo": true,
+    "creado_en": "2024-06-15T10:30:00.000Z"
+  },
+  {
+    "id": 2,
+    "nombre": "Carlos López",
+    "correo": "carlos@gmail.com",
+    "rol": "Promotor",
+    "activo": true,
+    "creado_en": "2024-06-16T08:00:00.000Z"
+  }
+]
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | number | Unique user identifier. |
+| `nombre` | string | Display name. |
+| `correo` | string | Email address (lowercase). |
+| `rol` | string | Current role: `Master`, `Promotor`, or `Repartidor`. |
+| `activo` | boolean | `true` if the account can log in; `false` if deactivated. |
+| `creado_en` | string | ISO 8601 timestamp of account creation. |
+
+---
+
+### Activate or deactivate an account
+
+Toggles whether a user can log in. A deactivated user receives a `403` error on login attempts until reactivated.
+
+**`PUT /api/auth/usuarios/:id`**
+
+#### Request body
+
+```json
+{
+  "activo": false
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `activo` | boolean | `true` to enable the account, `false` to disable it. |
+
+#### Example — deactivate user 2
+
+```bash
+curl -X PUT https://your-api/api/auth/usuarios/2 \
+  -H "Authorization: Bearer <master-token>" \
+  -H "Content-Type: application/json" \
+  -d '{ "activo": false }'
+```
+
+#### Example — reactivate user 2
+
+```bash
+curl -X PUT https://your-api/api/auth/usuarios/2 \
+  -H "Authorization: Bearer <master-token>" \
+  -H "Content-Type: application/json" \
+  -d '{ "activo": true }'
+```
+
+#### Response `200 OK`
+
+```json
+{ "ok": true }
+```
+
+---
+
+### Change a user's role
+
+Updates the role of any user. Only the three canonical role values are accepted; any other value returns a `400` error.
+
+**`PUT /api/auth/usuarios/:id/rol`**
+
+#### Request body
+
+```json
+{
+  "rol": "Repartidor"
+}
+```
+
+| Field | Accepted values |
+|---|---|
+| `rol` | `"Master"` \| `"Promotor"` \| `"Repartidor"` |
+
+#### Example — promote user 2 to Master
+
+```bash
+curl -X PUT https://your-api/api/auth/usuarios/2/rol \
+  -H "Authorization: Bearer <master-token>" \
+  -H "Content-Type: application/json" \
+  -d '{ "rol": "Master" }'
+```
+
+#### Example — assign Repartidor role to user 3
+
+```bash
+curl -X PUT https://your-api/api/auth/usuarios/3/rol \
+  -H "Authorization: Bearer <master-token>" \
+  -H "Content-Type: application/json" \
+  -d '{ "rol": "Repartidor" }'
+```
+
+#### Response `200 OK`
+
+```json
+{ "ok": true }
+```
+
+#### Error — invalid role value
+
+```json
+{
+  "error": "Rol inválido."
+}
+```
+
+---
+
+### Delete a user
+
+Permanently removes the account and all associated data from the database.
+
+**`DELETE /api/auth/usuarios/:id`**
+
+<Warning>
+  Deleting a user is **permanent and irreversible**. There is no soft-delete or recovery mechanism. All data belonging to the user — including their activity history — is removed immediately. Prefer deactivating an account (`activo: false`) if you only need to revoke login access.
+</Warning>
+
+#### Example — delete user 5
+
+```bash
+curl -X DELETE https://your-api/api/auth/usuarios/5 \
+  -H "Authorization: Bearer <master-token>"
+```
+
+#### Response `200 OK`
+
+```json
+{ "ok": true }
+```
+
+---
+
+## Admin screen (mobile app)
+
+The Admin screen in the Yakult App mobile interface gives Master users a visual dashboard to manage all accounts without needing direct API access.
+
+<Steps>
+  <Step title="Open the Admin panel">
+    Tap the **Admin** option in the navigation menu. This option is only visible to users with the Master role.
+  </Step>
+  <Step title="Review the user list">
+    All registered accounts are displayed in a scrollable table. Each row shows the user's name, email, and a colour-coded **role badge** (Master, Promotor, or Repartidor).
+  </Step>
+  <Step title="Activate or deactivate an account">
+    Tap the toggle button on any row to flip the account's active status. Deactivated accounts are visually dimmed. The change takes effect immediately.
+  </Step>
+  <Step title="Change a user's role">
+    Use the compact **role selector** on each row. Roles are shown as single-letter initials — **M** (Master), **P** (Promotor), **R** (Repartidor) — to keep the table readable on small screens. Selecting a new initial sends the role-change request automatically.
+  </Step>
+  <Step title="Delete an account">
+    Tap the **delete button** (trash icon) on a row to remove the account. A confirmation dialog appears before the deletion is sent to the server.
+  </Step>
+</Steps>
+
+---
+
+## Constraints and safeguards
+
+The following rules are enforced by the application to prevent accidental lock-outs:
+
+<CardGroup cols={2}>
+  <Card title="Cannot modify your own role" icon="user-shield">
+    A Master user cannot change their own role through the Admin screen or the API. This prevents accidental self-demotion that would lock the user out of the admin panel.
+  </Card>
+  <Card title="Cannot delete yourself" icon="trash-slash">
+    A Master cannot delete their own account while logged in. At least one active Master account must always be accessible.
+  </Card>
+  <Card title="Deletion is permanent" icon="triangle-exclamation">
+    There is no recycle bin or undo for deleted users. Always deactivate first, wait for any dispute period, then delete only when certain.
+  </Card>
+  <Card title="Role values are strict" icon="lock">
+    The API rejects any role value outside of `Master`, `Promotor`, and `Repartidor` with a `400 Bad Request` response.
+  </Card>
+</CardGroup>

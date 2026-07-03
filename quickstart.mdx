@@ -1,47 +1,180 @@
 ---
-title: "Quickstart"
-description: "Begin with a guide on the fastest path to a successful outcome"
+title: "Get Started with Yakult App"
+sidebarTitle: "Quickstart"
+description: "Clone the repo, start the MySQL database, run the Express backend, and launch the Expo mobile app — all in under 10 minutes."
 ---
 
-Describe how someone begins using your product. What is the first thing they need to do? Are there any prerequisites?
+This guide walks you through getting a fully working Yakult App development environment running on your local machine. By the end, you will have the MySQL database initialized, the Express backend serving the REST API on port 3000, and the Expo mobile app running on an emulator or physical device — ready to register your first user and place your first order.
 
-A quickstart should take someone from zero to using your product. They'll get a quick win and a sense of what they can accomplish.
-
-## Prerequisites
-
-Before you begin, you must have:
-
-- Requirement one (for example, Node.js 18+, a free account, an API key)
-- Requirement two (for example, a compatible device, a compatible browser, a compatible operating system)
-
-## Get started
+## Setup Steps
 
 <Steps>
-  <Step title="Install">
-    Describe how to install your product or sign up.
+  <Step title="Prerequisites">
+    Make sure the following tools are installed before you begin:
+
+    - **Node.js 18+** — [nodejs.org](https://nodejs.org)
+    - **MySQL** — via [XAMPP](https://www.apachefriends.org/) (recommended for Windows) or MySQL Workbench
+    - **Expo CLI** — install globally with:
 
     ```bash
-    npm install your-package
+    npm install -g expo-cli
+    ```
+
+    Verify your Node version before proceeding:
+
+    ```bash
+    node -v   # should print v18.x.x or higher
     ```
   </Step>
-  <Step title="Configure">
-    Describe any setup or configuration needed before first use.
+
+  <Step title="Clone the Repository">
+    Clone the Yakult App monorepo to your local machine:
 
     ```bash
-    your-cli init
+    git clone https://github.com/160906/Yakultt-App.git
+    cd Yakultt-App
+    ```
+
+    The repository contains two top-level directories:
+    - `backend/` — the Express.js API server
+    - `yakult-app/` — the React Native / Expo mobile application
+  </Step>
+
+  <Step title="Configure the Database">
+    Start your MySQL server, then create the `yakult_db` database:
+
+    ```bash
+    mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS yakult_db;"
+    ```
+
+    Optionally, seed the database with the provided SQL dump for sample data:
+
+    ```bash
+    mysql -u root -p yakult_db < backend/database/yakult_db.sql
+    ```
+
+    <Note>
+      Importing the SQL dump is optional. When the backend server starts for the first time, `ensureSchema()` automatically creates all required tables in `yakult_db`. You only need the dump if you want pre-loaded sample data.
+    </Note>
+  </Step>
+
+  <Step title="Start the Backend">
+    Install dependencies and start the Express development server:
+
+    ```bash
+    cd backend
+    npm install
+    npm run dev
+    ```
+
+    On startup you should see:
+
+    ```
+    Servidor corriendo en http://localhost:3000
+    ```
+
+    The server runs on **port 3000** and auto-migrates the database schema on every start. Verify it is healthy with a quick curl:
+
+    ```bash
+    curl http://localhost:3000/
+    ```
+
+    Expected response:
+
+    ```json
+    {
+      "ok": true,
+      "mensaje": "API Yakult funcionando ✅"
+    }
     ```
   </Step>
-  <Step title="Run it">
-    Show the first thing a user does to see it working.
+
+  <Step title="Configure the Mobile App API URL">
+    Open `yakult-app/services/db.ts` and confirm (or update) the `BASE` URL to match your environment:
+
+    ```ts
+    // Android emulator → points to host machine loopback
+    const BASE = 'http://10.0.2.2:3000/api';
+
+    // Physical device → replace with your machine's LAN IP address
+    // const BASE = 'http://192.168.1.100:3000/api';
+    ```
+
+    | Environment | BASE URL |
+    |---|---|
+    | Android Emulator | `http://10.0.2.2:3000/api` |
+    | iOS Simulator | `http://localhost:3000/api` |
+    | Physical Device (same Wi-Fi) | `http://<your-LAN-IP>:3000/api` |
+
+    To find your LAN IP on Windows run `ipconfig`; on macOS/Linux run `ifconfig` or `ip addr`.
+  </Step>
+
+  <Step title="Start the Mobile App">
+    In a new terminal, install dependencies and launch the Expo development server:
 
     ```bash
-    your-cli start
+    cd yakult-app
+    npm install
+    npx expo start
+    ```
+
+    Expo will display a QR code in the terminal. Scan it with the **Expo Go** app on a physical device, or press:
+    - `a` to open on a connected Android emulator
+    - `i` to open on an iOS simulator (macOS only)
+  </Step>
+
+  <Step title="Create Your First User">
+    You can register a new user either through the in-app registration screen or directly via the API.
+
+    **Using curl:**
+
+    ```bash
+    curl -X POST http://localhost:3000/api/auth/registro \
+      -H "Content-Type: application/json" \
+      -d '{
+        "nombre": "Ana López",
+        "email": "ana@upa.edu.mx",
+        "password": "MiContraseña123"
+      }'
+    ```
+
+    **Role assignment rules:**
+
+    | Email domain | Assigned role |
+    |---|---|
+    | `@upa.edu.mx` | **Master** (full admin access) |
+    | Any other domain | **Promotor** (field sales access) |
+
+    A successful registration returns a JWT token you can use to authenticate subsequent API requests:
+
+    ```json
+    {
+      "ok": true,
+      "token": "<jwt-token>",
+      "usuario": {
+        "id": 1,
+        "nombre": "Ana López",
+        "email": "ana@upa.edu.mx",
+        "rol": "Master"
+      }
+    }
     ```
   </Step>
 </Steps>
 
-<Tip>
-  Give people a way to get help. This could be a link to a support page, a chat with a customer support agent, or a forum for your product.
+## Next Steps
 
-  Example: Need help? Reach out to us at [support@yourcompany.com](mailto:support@yourcompany.com).
+With your environment running, explore the core modules of the platform:
+
+- **[Products](/features/products)** — Add and manage the Yakult product catalog
+- **[Clients](/features/clients)** — Register customers and manage accounts
+- **[Orders](/features/orders)** — Create orders and track fulfillment
+- **[Reports](/features/reports)** — Generate and export PDF sales reports
+
+<Tip>
+  On Windows, **XAMPP** is the fastest way to get MySQL running with zero configuration. Install XAMPP, open the XAMPP Control Panel, and click **Start** next to the MySQL module. The default `root` user with an empty password matches the backend `db.js` configuration exactly — no changes needed for local development.
 </Tip>
+
+<Warning>
+  The default database configuration in `backend/db.js` uses the `root` user with an **empty password**. This is acceptable for local development only. Before deploying to any shared or production environment, create a dedicated MySQL user with a strong password and update `db.js` (or use environment variables) accordingly.
+</Warning>

@@ -1,0 +1,243 @@
+---
+title: "Authenticate with Yakult App"
+sidebarTitle: "Authentication"
+description: "Yakult App uses JWT bearer tokens for authentication. Register or log in to receive a 30-day token, then include it in the Authorization header on protected requests."
+---
+
+Yakult App secures every API request with JSON Web Tokens (JWT). When a user registers or logs in, the server returns a signed token that encodes the user's `id` and `rol`. This token must be attached to every subsequent request that requires authentication. Tokens are valid for **30 days**, after which the user must log in again to obtain a fresh one.
+
+---
+
+## Registration
+
+New accounts are created by sending a `POST` request to `/api/auth/registro`. The server validates the input, hashes the password, assigns a role based on the email domain, and returns the new user object together with a ready-to-use JWT token.
+
+<Note>
+  Email addresses ending in `@upa.edu.mx` are automatically assigned the **Master** role. All other email addresses receive the **Promotor** role. This assignment happens at registration and can be changed later by a Master user.
+</Note>
+
+### Request
+
+**`POST /api/auth/registro`**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `nombre` | string | ✅ | Full display name of the user. |
+| `correo` | string | ✅ | Unique email address. Determines the initial role. |
+| `contrasena` | string | ✅ | Password that satisfies the complexity rules below. |
+
+### Password requirements
+
+Passwords are validated on the client before the request is sent. A password is accepted only when it meets **all three** of the following conditions:
+
+- At least **8 characters** long.
+- Contains at least **one uppercase letter** (A–Z).
+- Contains at least **one special character** from the set: `! @ # $ % ^ & * ( ) - _ , . ? " : { } | < >`
+
+### Example — register a new user
+
+```bash
+curl -X POST https://your-api/api/auth/registro \
+  -H "Content-Type: application/json" \
+  -d '{
+    "nombre": "Ana García",
+    "correo": "ana@upa.edu.mx",
+    "contrasena": "Segura#2024"
+  }'
+```
+
+### Response `200 OK`
+
+```json
+{
+  "usuario": {
+    "id": 42,
+    "nombre": "Ana García",
+    "correo": "ana@upa.edu.mx",
+    "rol": "Master"
+  },
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+}
+```
+
+---
+
+## Login
+
+Existing users authenticate with `POST /api/auth/login`. The server looks up the account, checks that it is active, verifies the password, and returns the same `{usuario, token}` shape as registration.
+
+### Request
+
+**`POST /api/auth/login`**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `correo` | string | ✅ | The registered email address. |
+| `contrasena` | string | ✅ | The account password. |
+
+### Error cases
+
+| Scenario | Status | Message |
+|---|---|---|
+| Missing `correo` or `contrasena` | `400` | `"Correo y contraseña son requeridos."` |
+| Email not found or wrong password | `401` | `"Credenciales inválidas."` |
+| Account is deactivated | `403` | `"Cuenta desactivada."` |
+
+### Example — log in
+
+```bash
+curl -X POST https://your-api/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "correo": "ana@upa.edu.mx",
+    "contrasena": "Segura#2024"
+  }'
+```
+
+### Response `200 OK`
+
+```json
+{
+  "usuario": {
+    "id": 42,
+    "nombre": "Ana García",
+    "correo": "ana@upa.edu.mx",
+    "rol": "Master"
+  },
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+}
+```
+
+---
+
+## Using the token
+
+Store the token securely (the mobile app uses `AsyncStorage`) and attach it to every protected request via the `Authorization` header using the **Bearer** scheme.
+
+```bash
+Authorization: Bearer <your-token>
+```
+
+The server also accepts the token as a `token` query parameter or in the request body, but the `Authorization` header is the recommended approach for API clients.
+
+### Example — authenticated request
+
+```bash
+curl https://your-api/api/auth/usuarios \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+If the token is missing or has expired, the server responds with `401`:
+
+```json
+{
+  "error": "Token de autenticación requerido."
+}
+```
+
+```json
+{
+  "error": "Token inválido o expirado."
+}
+```
+
+---
+
+## JWT payload
+
+The token is signed with the HS256 algorithm. Decoding it reveals the following claims:
+
+```json
+{
+  "id": 42,
+  "rol": "Master",
+  "iat": 1719000000,
+  "exp": 1721592000
+}
+```
+
+| Claim | Description |
+|---|---|
+| `id` | Unique integer identifier of the user in the database. |
+| `rol` | Role of the user: `Master`, `Promotor`, or `Repartidor`. |
+| `iat` | Unix timestamp when the token was issued. |
+| `exp` | Unix timestamp when the token expires (issued + 30 days). |
+
+<Warning>
+  The default signing secret is `yakult-reportes-dev-secret`, which is embedded in the source code and **must not be used in production**. Override it by setting the `JWT_SECRET` environment variable on your server before starting the application. Any tokens signed with the development secret will become invalid once the variable is changed.
+</Warning>
+
+---
+
+## Mobile app — AuthContext
+
+The React Native app wraps all authentication logic in `AuthContext`, which exposes the following interface to every screen:
+
+| Value / Method | Type | Description |
+|---|---|---|
+| `usuario` | `{id, nombre, correo, rol}` \| `null` | The currently authenticated user, or `null` when logged out. |
+| `cargando` | `boolean` | `true` while an auth request is in flight. |
+| `login(correo, contrasena)` | `Promise` | Calls `POST /api/auth/login` and stores the returned token in `AsyncStorage`. |
+| `registro(nombre, correo, contrasena)` | `Promise` | Calls `POST /api/auth/registro` and stores the token. |
+| `logout()` | `void` | Clears the token from `AsyncStorage` and sets `usuario` to `null`. |
+
+### Example — consuming the context in a screen
+
+```ts
+import { useContext } from 'react';
+import { AuthContext } from '@/context/AuthContext';
+
+export default function LoginScreen() {
+  const { login, cargando } = useContext(AuthContext);
+
+  const handleLogin = async () => {
+    await login('ana@upa.edu.mx', 'Segura#2024');
+  };
+}
+```
+
+---
+
+## Error response reference
+
+<Tabs>
+  <Tab title="400 Bad Request">
+    Returned when required fields are missing or when the email is already registered.
+
+    ```json
+    {
+      "error": "Todos los campos son requeridos."
+    }
+    ```
+
+    ```json
+    {
+      "error": "El correo ya está registrado."
+    }
+    ```
+  </Tab>
+  <Tab title="401 Unauthorized">
+    Returned when credentials do not match or when the token is absent or expired.
+
+    ```json
+    {
+      "error": "Credenciales inválidas."
+    }
+    ```
+
+    ```json
+    {
+      "error": "Token inválido o expirado."
+    }
+    ```
+  </Tab>
+  <Tab title="403 Forbidden">
+    Returned when the account exists and the password is correct, but the account has been deactivated by a Master user.
+
+    ```json
+    {
+      "error": "Cuenta desactivada."
+    }
+    ```
+  </Tab>
+</Tabs>
